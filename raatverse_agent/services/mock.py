@@ -132,36 +132,73 @@ class MockDraftScriptGenerator(ScriptDraftGenerator):
             "aaj raat main wapas aaungi, par is baar darwaza tum kholna. "
             f"{self.settings.outro_cta}"
         )
+        tts_narration = (
+            f"रात के 2:{minute:02d} बजे, मीरा के फोन पर उसी की आवाज का मैसेज आया। "
+            "मैसेज सिर्फ तीन शब्दों का था: दरवाजा मत खोल। "
+            "मीरा ने कॉरिडोर की लाइट ऑन की, पर बल्ब जलते ही दीवार पर गीली मिट्टी के निशान दिखने लगे। "
+            "उसने सोचा यह कोई प्रैंक होगा, लेकिन हर निशान उसके कमरे की तरफ आ रहा था। "
+            "फोन पर दूसरा ऑडियो प्ले हुआ: मीरा, अगर तू मुझे सुन रही है, मैं कल वाली तू हूं। "
+            "तभी अलमारी के शीशे में उसने अपना रिफ्लेक्शन देखा, पर रिफ्लेक्शन के हाथ में एक पुरानी चाबी थी। "
+            "चाबी पर उस घर का नंबर लिखा था जहां वह बचपन में कभी गई ही नहीं थी। "
+            "सुबह पुलिस को कॉरिडोर में सिर्फ मिट्टी मिली, और मीरा के फोन में एक नई रिकॉर्डिंग थी: "
+            "आज रात मैं वापस आऊंगी, पर इस बार दरवाजा तुम खोलना। "
+            "अगर कहानी पसंद आई हो, तो रातवर्स को सब्सक्राइब करो। कल रात एक और नई कहानी मिलेगी।"
+        )
         draft = ScriptDraft(
             title=title,
             category=category,
             story_type=story_type,
             hook=hook,
             full_narration_script=narration,
+            narration_hindi_devanagari_for_tts=tts_narration,
             scene_beats=[
                 ScriptSceneBeat(
                     start_second=0,
                     end_second=3,
                     narration=hook,
                     visual_suggestion="Extreme close-up of a phone glowing in a dark room.",
+                    narration_segment=hook,
+                    stock_search_query="phone screen glowing dark room night vertical horror close up",
+                    negative_keywords=["cartoon", "bright daylight", "comedy"],
+                    mood="eerie",
+                    location="dark bedroom",
+                    camera_motion="static close-up",
                 ),
                 ScriptSceneBeat(
                     start_second=3,
                     end_second=build_end,
                     narration="Meera follows wet footprints through a quiet corridor.",
                     visual_suggestion="Slow vertical dolly through a dim corridor with wet floor marks.",
+                    narration_segment="Message warns Meera not to open the door while wet footprints move through the corridor.",
+                    stock_search_query="dark narrow corridor wet floor footprints night vertical suspense",
+                    negative_keywords=["crowd", "bright office", "sunny"],
+                    mood="slow suspense",
+                    location="dim corridor",
+                    camera_motion="slow dolly",
                 ),
                 ScriptSceneBeat(
                     start_second=build_end,
                     end_second=reveal_end,
                     narration="The reflection reveals a key and a message from tomorrow.",
                     visual_suggestion="Mirror reflection holding an old key while the real hand is empty.",
+                    narration_segment="The mirror shows a key in the reflection and a message from tomorrow.",
+                    stock_search_query="old mirror reflection key dark room cinematic vertical",
+                    negative_keywords=["makeup tutorial", "bright bathroom", "happy"],
+                    mood="uncanny reveal",
+                    location="old mirror in dark room",
+                    camera_motion="slow push-in",
                 ),
                 ScriptSceneBeat(
                     start_second=reveal_end,
                     end_second=duration,
                     narration=self.settings.outro_cta,
                     visual_suggestion="RaatVerse title over dark cinematic texture.",
+                    narration_segment=self.settings.outro_cta,
+                    stock_search_query="dark cinematic smoke texture black background vertical",
+                    negative_keywords=["logo", "cartoon", "bright"],
+                    mood="premium outro",
+                    location="abstract dark texture",
+                    camera_motion="slow pan",
                 ),
             ],
             subtitle_lines=[

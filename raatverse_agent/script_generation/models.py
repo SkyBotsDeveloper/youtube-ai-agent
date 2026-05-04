@@ -14,6 +14,12 @@ class ScriptSceneBeat(BaseModel):
     end_second: int = Field(ge=0)
     narration: str = Field(min_length=1)
     visual_suggestion: str = Field(min_length=1)
+    narration_segment: str | None = None
+    stock_search_query: str | None = None
+    negative_keywords: list[str] = Field(default_factory=list)
+    mood: str | None = None
+    location: str | None = None
+    camera_motion: str | None = None
 
     @field_validator("end_second")
     @classmethod
@@ -59,6 +65,10 @@ class ScriptDraft(BaseModel):
     story_type: str = Field(min_length=1, max_length=80)
     hook: str = Field(min_length=1, max_length=300)
     narration_script: str = Field(min_length=1, alias="full_narration_script")
+    tts_narration_script: str | None = Field(
+        default=None,
+        alias="narration_hindi_devanagari_for_tts",
+    )
     scene_beats: list[ScriptSceneBeat] = Field(default_factory=list)
     subtitle_lines: list[str] = Field(default_factory=list)
     cta_line: str = Field(min_length=1)
@@ -115,6 +125,18 @@ def _coerce_scene_beat(item: Any, index: int) -> dict[str, Any]:
             "visual_suggestion": str(
                 item.get("visual_suggestion", item.get("visual", item.get("scene", "")))
             ).strip(),
+            "narration_segment": str(
+                item.get("narration_segment", item.get("narration", item.get("line", "")))
+            ).strip()
+            or None,
+            "stock_search_query": str(
+                item.get("stock_search_query", item.get("search_query", ""))
+            ).strip()
+            or None,
+            "negative_keywords": _as_list(item.get("negative_keywords")),
+            "mood": str(item.get("mood", "")).strip() or None,
+            "location": str(item.get("location", "")).strip() or None,
+            "camera_motion": str(item.get("camera_motion", "")).strip() or None,
         }
     return {
         "start_second": index * 10,
@@ -143,9 +165,15 @@ def script_draft_from_payload(
     narration_script = (
         payload.get("narration_script")
         or payload.get("full_narration_script")
+        or payload.get("narration_hinglish")
         or payload.get("script")
         or payload.get("full_script")
         or ""
+    )
+    tts_narration_script = (
+        payload.get("narration_hindi_devanagari_for_tts")
+        or payload.get("tts_narration_script")
+        or payload.get("tts_text")
     )
 
     return ScriptDraft(
@@ -154,6 +182,9 @@ def script_draft_from_payload(
         story_type=str(payload.get("story_type", default_story_type)).strip() or default_story_type,
         hook=str(payload.get("hook", "")).strip(),
         full_narration_script=str(narration_script).strip(),
+        narration_hindi_devanagari_for_tts=(
+            str(tts_narration_script).strip() if tts_narration_script else None
+        ),
         scene_beats=scene_beats,
         subtitle_lines=_as_list(payload.get("subtitle_lines") or payload.get("subtitles")),
         cta_line=str(payload.get("cta_line", cta_line)).strip() or cta_line,

@@ -12,6 +12,7 @@ RenderStatus = Literal["render_pending", "render_running", "render_ready", "rend
 class RenderRequest(BaseModel):
     mock: bool = False
     force: bool = False
+    strict_quality: bool = False
 
 
 class RenderValidationResult(BaseModel):

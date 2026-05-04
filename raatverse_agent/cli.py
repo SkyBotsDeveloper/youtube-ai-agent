@@ -20,8 +20,13 @@ from raatverse_agent.analytics.models import AnalyticsFetchAllRequest, Analytics
 from raatverse_agent.analytics.service import AnalyticsWorkflowError, create_analytics_workflow_service
 from raatverse_agent.analytics.strategy import StrategyLearningService
 from raatverse_agent.assets.errors import AssetWorkflowError
-from raatverse_agent.assets.formatting import format_asset_plan, format_audio_asset
+from raatverse_agent.assets.formatting import (
+    format_asset_plan,
+    format_asset_quality_report,
+    format_audio_asset,
+)
 from raatverse_agent.assets.models import AssetPreparationRequest, TTSGenerationRequest
+from raatverse_agent.assets.quality import analyze_asset_plan
 from raatverse_agent.assets.service import (
     create_asset_preparation_service,
     create_tts_asset_service,
@@ -220,6 +225,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     assets_show = assets_subparsers.add_parser("show", help="Show an asset plan")
     assets_show.add_argument("id", type=int, help="Asset plan database ID")
+    assets_quality = assets_subparsers.add_parser("quality", help="Show asset media quality report")
+    assets_quality.add_argument("id", type=int, help="Asset plan database ID")
 
     render_parser = subparsers.add_parser("render", help="Video render commands")
     render_subparsers = render_parser.add_subparsers(dest="render_command", required=True)
@@ -233,6 +240,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Allow rendering when validation has blocking issues",
     )
     render_create.add_argument("--note", required=False, help="Optional operator note")
+    render_create.add_argument(
+        "--strict-quality",
+        action="store_true",
+        help="Block rendering when media/audio quality preflight warnings are present",
+    )
 
     render_list = render_subparsers.add_parser("list", help="List video renders")
     render_list.add_argument("--status", required=False, help="Filter by render status")
@@ -244,6 +256,11 @@ def build_parser() -> argparse.ArgumentParser:
     render_validate = render_subparsers.add_parser("validate", help="Validate an asset plan for rendering")
     render_validate.add_argument("asset_plan_id", type=int, help="Asset plan database ID")
     render_validate.add_argument("--force", action="store_true", help="Show forced validation result")
+    render_validate.add_argument(
+        "--strict-quality",
+        action="store_true",
+        help="Treat media/audio quality warnings as validation issues",
+    )
 
     youtube_parser = subparsers.add_parser("youtube", help="YouTube OAuth and upload commands")
     youtube_subparsers = youtube_parser.add_subparsers(dest="youtube_command", required=True)
@@ -708,6 +725,8 @@ def main(argv: list[str] | None = None) -> int:
                         comment=args.note,
                     )
                 print(format_asset_plan(plan))
+                print()
+                print(format_asset_quality_report(analyze_asset_plan(plan, settings)))
                 return 0 if plan.status == "asset_ready" else 2
 
             if args.assets_command == "list":
@@ -730,6 +749,14 @@ def main(argv: list[str] | None = None) -> int:
                 print(format_asset_plan(plan))
                 return 0
 
+            if args.assets_command == "quality":
+                plan = repository.get_asset_plan(args.id)
+                if plan is None:
+                    print(f"Asset plan {args.id} was not found.", file=sys.stderr)
+                    return 1
+                print(format_asset_quality_report(analyze_asset_plan(plan, settings)))
+                return 0
+
     if args.command == "render":
         initialize_database(settings.database_url)
         with session_scope(settings.database_url) as session:
@@ -743,7 +770,11 @@ def main(argv: list[str] | None = None) -> int:
                     )
                     render = service.create_render(
                         args.asset_plan_id,
-                        RenderRequest(mock=args.mock, force=args.force),
+                        RenderRequest(
+                            mock=args.mock,
+                            force=args.force,
+                            strict_quality=args.strict_quality,
+                        ),
                     )
                 except (RenderWorkflowError, ValueError) as exc:
                     print(f"Render failed: {exc}", file=sys.stderr)
@@ -795,7 +826,11 @@ def main(argv: list[str] | None = None) -> int:
                         repository=repository,
                         mock=True,
                     )
-                    result = service.validate_asset_plan(args.asset_plan_id, force=args.force)
+                    result = service.validate_asset_plan(
+                        args.asset_plan_id,
+                        force=args.force,
+                        strict_quality=args.strict_quality,
+                    )
                 except ValueError as exc:
                     print(f"Render validation failed: {exc}", file=sys.stderr)
                     return 2

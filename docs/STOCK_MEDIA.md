@@ -19,6 +19,10 @@ STOCK_MEDIA_RESULTS_PER_BEAT=3
 STOCK_MEDIA_CACHE_DIR=./outputs/assets/media
 STOCK_MEDIA_DOWNLOAD_ENABLED=false
 STOCK_MEDIA_TIMEOUT_SECONDS=20
+STOCK_MEDIA_AVOID_DUPLICATES=true
+STOCK_MEDIA_MIN_UNIQUE_PER_PLAN=6
+STOCK_MEDIA_PREFER_VERTICAL=true
+STOCK_MEDIA_MAX_REUSE_PER_URL=1
 ```
 
 Use mock mode:
@@ -42,6 +46,46 @@ PIXABAY_API_KEY=replace-with-free-pixabay-key
 ```
 
 If a required key is missing, the workflow saves an `asset_failed` plan with a clear error message. Mock mode remains available.
+
+## Scene-Specific Queries
+
+Script prompts now request scene-level visual metadata:
+
+- `stock_search_query`
+- `negative_keywords`
+- `mood`
+- `location`
+- `camera_motion`
+
+The media providers use these fields before falling back to generic category terms. Good queries should describe the visible scene, not just the genre:
+
+```text
+dark abandoned house interior night vertical
+old wall texture dark room horror
+scary hallway shadows night vertical
+lonely man dark corridor suspense
+dark cinematic room heartbeat horror
+```
+
+Pexels and Pixabay searches try alternate beat-specific queries when the first query is weak.
+
+## Diversity Filtering
+
+Asset preparation now selects a diverse candidate per scene beat:
+
+- avoids reusing the same source URL across beats when alternatives exist
+- prefers unique videos per beat
+- prefers vertical assets when configured
+- penalizes repeated clips
+- falls back to a local dark cinematic placeholder for weak beats
+
+Run a quality report after preparing assets:
+
+```bash
+python -m raatverse_agent assets quality <asset_plan_id>
+```
+
+The report shows total beats, unique URLs, repeated URLs, vertical media count, missing local files, provider distribution, weak beats, and recommendations. `assets prepare` prints this report automatically.
 
 ## Attribution Metadata
 

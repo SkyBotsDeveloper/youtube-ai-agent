@@ -6,13 +6,15 @@ import pytest
 
 from raatverse_agent.assets.errors import AssetWorkflowError, StockMediaProviderError
 from raatverse_agent.assets.media import PexelsStockMediaProvider, PixabayStockMediaProvider
-from raatverse_agent.assets.models import AssetPreparationRequest, TTSGenerationRequest
+from raatverse_agent.assets.models import AssetPlan, AssetPreparationRequest, MediaAssetCandidate, TTSGenerationRequest
+from raatverse_agent.assets.quality import analyze_asset_plan, select_diverse_media_candidates
 from raatverse_agent.assets.service import (
     create_asset_preparation_service,
     create_tts_asset_service,
 )
 from raatverse_agent.assets.timing import build_subtitle_timings
 from raatverse_agent.assets.tts import EdgeFreeTTSProvider
+from raatverse_agent.assets.tts_text import chunk_tts_text, normalize_tts_text, prepare_tts_text
 from raatverse_agent.config import Settings
 from raatverse_agent.db.repositories import RaatVerseRepository
 from raatverse_agent.db.session import initialize_database, session_scope
@@ -65,6 +67,35 @@ def test_mock_tts_generation_for_approved_script(tmp_path):
     assert audio.file_path is not None
     assert audio.duration_seconds and audio.duration_seconds > 0
     assert len(audio.subtitle_timings) > 0
+    assert audio.tts_text
+    assert audio.tts_quality_metadata["chunk_count"] >= 1
+
+
+def test_tts_text_normalization_and_chunking_preserves_text(tmp_path):
+    settings = _settings(tmp_path, tts_max_chars_per_chunk=90)
+    text = "Raat gehri thi... aur main akela tha.\n\nDarwaza mat khol."
+
+    normalized = normalize_tts_text(text, settings)
+    chunks = chunk_tts_text(normalized, settings.tts_max_chars_per_chunk)
+
+    assert "..." not in normalized
+    assert chunks
+    assert all(len(chunk) <= settings.tts_max_chars_per_chunk for chunk in chunks)
+    assert "".join("".join(chunks).split()) == "".join(normalized.split())
+
+
+def test_devanagari_tts_text_selection_for_hindi_voice(tmp_path):
+    settings = _settings(tmp_path, tts_voice="hi-IN-SwaraNeural", tts_use_devanagari=True)
+    draft_id = _create_draft(settings, approved=True)
+
+    with session_scope(settings.database_url) as session:
+        draft = RaatVerseRepository(session).get_script_draft(draft_id)
+
+    prepared = prepare_tts_text(draft, settings)
+
+    assert "रात" in prepared.tts_text
+    assert "दरवाजा" in prepared.tts_text or "दरवाज़ा" in prepared.tts_text
+    assert prepared.input_characters > 0
 
 
 def test_free_tts_provider_returns_failed_metadata_when_network_fails(monkeypatch, tmp_path):
@@ -114,6 +145,86 @@ def test_mock_media_asset_planning(tmp_path):
     assert plan.audio_asset_id is not None
     assert len(plan.media_assets) >= 1
     assert all(item.provider == "mock" for item in plan.media_assets)
+    assert len({item.source_url for item in plan.media_assets}) == len(plan.media_assets)
+
+
+def test_media_duplicate_filter_prefers_unique_vertical_assets(tmp_path):
+    settings = _settings(tmp_path, stock_media_results_per_beat=3)
+    candidates = [
+        MediaAssetCandidate(
+            provider="pexels",
+            query="same",
+            media_type="video",
+            source_url="https://stock.example/reused.mp4",
+            width=1080,
+            height=1920,
+            beat_index=0,
+            score=1.0,
+        ),
+        MediaAssetCandidate(
+            provider="pexels",
+            query="same",
+            media_type="video",
+            source_url="https://stock.example/reused.mp4",
+            width=1080,
+            height=1920,
+            beat_index=1,
+            score=1.0,
+        ),
+        MediaAssetCandidate(
+            provider="pexels",
+            query="unique",
+            media_type="video",
+            source_url="https://stock.example/unique-1.mp4",
+            width=1080,
+            height=1920,
+            beat_index=1,
+            score=0.8,
+        ),
+    ]
+
+    selected = select_diverse_media_candidates(candidates, beat_count=2, settings=settings)
+
+    assert len(selected) == 2
+    assert len({item.source_url for item in selected}) == 2
+
+
+def test_asset_quality_report_flags_repeated_and_weak_media(tmp_path):
+    settings = _settings(tmp_path)
+    plan = AssetPlan(
+        id=7,
+        script_draft_id=1,
+        provider="pexels",
+        media_assets=[
+            MediaAssetCandidate(
+                provider="pexels",
+                query="dark room",
+                media_type="video",
+                source_url="https://stock.example/reused.mp4",
+                width=1920,
+                height=1080,
+                beat_index=0,
+                score=1.0,
+            ),
+            MediaAssetCandidate(
+                provider="pexels",
+                query="dark hall",
+                media_type="video",
+                source_url="https://stock.example/reused.mp4",
+                width=1920,
+                height=1080,
+                beat_index=1,
+                score=1.0,
+            ),
+        ],
+    )
+
+    report = analyze_asset_plan(plan, settings)
+
+    assert report.asset_plan_id == 7
+    assert report.repeated_urls == ["https://stock.example/reused.mp4"]
+    assert report.vertical_media_count == 0
+    assert report.weak_beats == [0, 1]
 
 
 def test_pexels_and_pixabay_missing_keys_fail_gracefully(tmp_path):
@@ -182,6 +293,9 @@ def test_cli_tts_and_assets_commands(tmp_path):
     subprocess.run([*base, "script", "approve", "1"], check=True, env=full_env)
     tts = subprocess.run([*base, "tts", "generate", "1", "--mock"], check=True, env=full_env, capture_output=True, text=True)
     assets = subprocess.run([*base, "assets", "prepare", "1", "--mock"], check=True, env=full_env, capture_output=True, text=True)
+    quality = subprocess.run([*base, "assets", "quality", "1"], check=True, env=full_env, capture_output=True, text=True)
 
     assert "Audio ID:" in tts.stdout
     assert "Asset plan ID:" in assets.stdout
+    assert "asset quality report" in assets.stdout.lower()
+    assert "Unique media URLs:" in quality.stdout

@@ -61,12 +61,16 @@ class Settings(BaseSettings):
     tts_provider: str = "mock"
     tts_api_key: str = ""
     tts_voice_id: str = "raatverse-hindi-narrator"
-    tts_voice: str = "female_hindi"
+    tts_voice: str = "hi-IN-SwaraNeural"
     tts_language: str = "hi-IN"
     tts_speaking_rate: str = "normal"
     tts_output_format: str = "mp3"
     tts_max_retries: int = Field(default=2, ge=0)
     tts_cache_dir: str = "./outputs/assets/audio"
+    tts_text_mode: Literal["auto", "raw", "devanagari"] = "auto"
+    tts_use_devanagari: bool = True
+    tts_max_chars_per_chunk: int = Field(default=450, ge=80)
+    tts_pause_style: Literal["punctuation", "plain"] = "punctuation"
 
     stock_media_provider: str = "mock"
     pexels_api_key: str = ""
@@ -75,6 +79,10 @@ class Settings(BaseSettings):
     stock_media_cache_dir: str = "./outputs/assets/media"
     stock_media_download_enabled: bool = False
     stock_media_timeout_seconds: float = Field(default=20.0, ge=1.0)
+    stock_media_avoid_duplicates: bool = True
+    stock_media_min_unique_per_plan: int = Field(default=6, ge=1)
+    stock_media_prefer_vertical: bool = True
+    stock_media_max_reuse_per_url: int = Field(default=1, ge=1)
 
     ffmpeg_binary: str = "ffmpeg"
     output_dir: str = "./outputs"

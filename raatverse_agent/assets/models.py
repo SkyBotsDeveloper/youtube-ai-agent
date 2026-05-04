@@ -33,6 +33,9 @@ class AudioAsset(BaseModel):
     language: str
     file_path: str | None = None
     duration_seconds: float | None = None
+    tts_text: str | None = None
+    tts_chunks: list[str] = Field(default_factory=list)
+    tts_quality_metadata: dict = Field(default_factory=dict)
     subtitle_timings: list[SubtitleTiming] = Field(default_factory=list)
     scene_timings: list[SceneTimingSuggestion] = Field(default_factory=list)
     status: AssetStatus = "asset_pending"
@@ -79,3 +82,17 @@ class AssetPreparationRequest(BaseModel):
     mock: bool = False
     force: bool = False
     download_enabled: bool | None = None
+
+
+class AssetQualityReport(BaseModel):
+    asset_plan_id: int | None = None
+    total_beats: int = 0
+    total_media_assets: int = 0
+    unique_media_urls: int = 0
+    repeated_urls: list[str] = Field(default_factory=list)
+    vertical_media_count: int = 0
+    missing_local_files: int = 0
+    provider_distribution: dict[str, int] = Field(default_factory=dict)
+    weak_beats: list[int] = Field(default_factory=list)
+    unique_media_ratio: float = 0.0
+    recommendations: list[str] = Field(default_factory=list)

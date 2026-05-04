@@ -12,11 +12,33 @@ from raatverse_agent.script_generation.models import ScriptDraft
 from raatverse_agent.services.interfaces import StockMediaProvider
 
 
-def _beat_query(draft: ScriptDraft, visual_suggestion: str) -> str:
-    base = f"{draft.category} dark cinematic mysterious vertical"
-    if visual_suggestion:
-        return f"{base} {visual_suggestion[:80]}"
-    return base
+def beat_stock_queries(draft: ScriptDraft, beat) -> list[str]:
+    primary = (getattr(beat, "stock_search_query", None) or "").strip()
+    location = (getattr(beat, "location", None) or "").strip()
+    mood = (getattr(beat, "mood", None) or "").strip()
+    motion = (getattr(beat, "camera_motion", None) or "").strip()
+    visual = (beat.visual_suggestion or "").strip()
+    base_parts = [
+        location,
+        mood,
+        visual,
+        draft.category,
+        "dark cinematic vertical",
+    ]
+    fallback = " ".join(part for part in base_parts if part).strip()
+    queries = [
+        primary,
+        fallback,
+        f"{location} {mood} night vertical suspense".strip(),
+        f"{draft.category} {mood} {motion} horror short vertical".strip(),
+        f"{visual[:80]} vertical cinematic stock video".strip(),
+    ]
+    cleaned: list[str] = []
+    for query in queries:
+        normalized = " ".join(query.split())
+        if normalized and normalized not in cleaned:
+            cleaned.append(normalized)
+    return cleaned or [f"{draft.category} dark cinematic mysterious vertical"]
 
 
 class MockStockMediaProvider(StockMediaProvider):
@@ -26,7 +48,7 @@ class MockStockMediaProvider(StockMediaProvider):
     def search_for_draft(self, draft: ScriptDraft) -> list[MediaAssetCandidate]:
         candidates: list[MediaAssetCandidate] = []
         for index, beat in enumerate(draft.scene_beats):
-            query = _beat_query(draft, beat.visual_suggestion)
+            query = beat_stock_queries(draft, beat)[0]
             for result_index in range(self.settings.stock_media_results_per_beat):
                 candidates.append(
                     MediaAssetCandidate(
@@ -59,18 +81,25 @@ class PexelsStockMediaProvider(StockMediaProvider):
         candidates: list[MediaAssetCandidate] = []
         with httpx.Client(timeout=self.settings.stock_media_timeout_seconds) as client:
             for index, beat in enumerate(draft.scene_beats):
-                query = _beat_query(draft, beat.visual_suggestion)
-                response = client.get(
-                    "https://api.pexels.com/videos/search",
-                    headers={"Authorization": self.settings.pexels_api_key},
-                    params={
-                        "query": query,
-                        "orientation": "portrait",
-                        "per_page": self.settings.stock_media_results_per_beat,
-                    },
-                )
-                response.raise_for_status()
-                candidates.extend(self._parse_results(response.json(), query, index))
+                beat_candidates: list[MediaAssetCandidate] = []
+                target_candidates = self.settings.stock_media_results_per_beat * 2
+                for query in beat_stock_queries(draft, beat):
+                    response = client.get(
+                        "https://api.pexels.com/videos/search",
+                        headers={"Authorization": self.settings.pexels_api_key},
+                        params={
+                            "query": query,
+                            "orientation": "portrait",
+                            "per_page": self.settings.stock_media_results_per_beat,
+                        },
+                    )
+                    response.raise_for_status()
+                    beat_candidates = _dedupe_candidates(
+                        [*beat_candidates, *self._parse_results(response.json(), query, index)]
+                    )
+                    if len(beat_candidates) >= target_candidates:
+                        break
+                candidates.extend(beat_candidates)
         return candidates
 
     def _parse_results(self, payload: dict, query: str, beat_index: int) -> list[MediaAssetCandidate]:
@@ -121,18 +150,25 @@ class PixabayStockMediaProvider(StockMediaProvider):
         candidates: list[MediaAssetCandidate] = []
         with httpx.Client(timeout=self.settings.stock_media_timeout_seconds) as client:
             for index, beat in enumerate(draft.scene_beats):
-                query = _beat_query(draft, beat.visual_suggestion)
-                response = client.get(
-                    "https://pixabay.com/api/videos/",
-                    params={
-                        "key": self.settings.pixabay_api_key,
-                        "q": query,
-                        "per_page": self.settings.stock_media_results_per_beat,
-                        "video_type": "film",
-                    },
-                )
-                response.raise_for_status()
-                candidates.extend(self._parse_results(response.json(), query, index))
+                beat_candidates: list[MediaAssetCandidate] = []
+                target_candidates = self.settings.stock_media_results_per_beat * 2
+                for query in beat_stock_queries(draft, beat):
+                    response = client.get(
+                        "https://pixabay.com/api/videos/",
+                        params={
+                            "key": self.settings.pixabay_api_key,
+                            "q": query,
+                            "per_page": self.settings.stock_media_results_per_beat,
+                            "video_type": "film",
+                        },
+                    )
+                    response.raise_for_status()
+                    beat_candidates = _dedupe_candidates(
+                        [*beat_candidates, *self._parse_results(response.json(), query, index)]
+                    )
+                    if len(beat_candidates) >= target_candidates:
+                        break
+                candidates.extend(beat_candidates)
         return candidates
 
     def _parse_results(self, payload: dict, query: str, beat_index: int) -> list[MediaAssetCandidate]:
@@ -196,3 +232,15 @@ def ensure_media_cache_dir(settings: Settings) -> Path:
     path = Path(settings.stock_media_cache_dir)
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def _dedupe_candidates(candidates: list[MediaAssetCandidate]) -> list[MediaAssetCandidate]:
+    seen: set[str] = set()
+    deduped: list[MediaAssetCandidate] = []
+    for candidate in candidates:
+        key = candidate.source_url
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(candidate)
+    return deduped

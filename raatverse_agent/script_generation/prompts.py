@@ -5,7 +5,7 @@ from textwrap import dedent
 from raatverse_agent.config import Settings
 from raatverse_agent.script_generation.models import ScriptGenerationRequest
 
-PROMPT_VERSION = "raatverse-script-v1"
+PROMPT_VERSION = "raatverse-script-v2"
 
 PROMPT_TEMPLATES: dict[str, dict[str, str]] = {
     "horror": {
@@ -97,6 +97,9 @@ def build_script_prompt(settings: Settings, request: ScriptGenerationRequest) ->
         - 3-45 sec: build-up with cinematic suspense.
         - 45-65 sec: twist or reveal.
         - Last 5-10 sec: CTA exactly as supplied.
+        - Keep subtitle lines short enough for bold Shorts captions.
+        - Write the display narration in natural Hinglish, but also provide a Devanagari Hindi narration variant for TTS.
+        - Use scene-specific visual search keywords. Avoid generic one-word visual terms.
 
         Safety and originality boundaries:
         - Must be original.
@@ -119,13 +122,21 @@ def build_script_prompt(settings: Settings, request: ScriptGenerationRequest) ->
           "category": "{category}",
           "story_type": "{story_type}",
           "hook": "0-3 sec opening line",
-          "narration_script": "full narration including the CTA at the end",
+          "narration_hinglish": "full Hinglish display narration including the CTA at the end",
+          "narration_hindi_devanagari_for_tts": "same complete narration in natural Devanagari Hindi for hi-IN TTS voices",
+          "narration_script": "same as narration_hinglish, included for compatibility",
           "scene_beats": [
             {{
               "start_second": 0,
               "end_second": 3,
-              "narration": "line or beat",
-              "visual_suggestion": "vertical cinematic visual suggestion"
+              "narration": "short Hinglish line or beat",
+              "narration_segment": "matching narration segment for this beat",
+              "visual_suggestion": "specific vertical cinematic visual suggestion",
+              "stock_search_query": "specific stock search query such as dark abandoned house interior night vertical",
+              "negative_keywords": ["generic", "cartoon", "bright daylight"],
+              "mood": "eerie, lonely, tense, emotional, or reveal",
+              "location": "specific place or texture visible in the scene",
+              "camera_motion": "slow push-in, handheld drift, static close-up, or slow pan"
             }}
           ],
           "subtitle_lines": ["short subtitle-friendly line"],

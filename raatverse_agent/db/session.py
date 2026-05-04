@@ -85,6 +85,14 @@ def _run_sqlite_migrations(engine: Engine) -> None:
     inspector = inspect(engine)
     table_names = set(inspector.get_table_names())
     migrations: dict[str, dict[str, str]] = {
+        "script_drafts": {
+            "tts_narration_script": "TEXT",
+        },
+        "audio_assets": {
+            "tts_text": "TEXT",
+            "tts_chunks_json": "JSON",
+            "tts_quality_json": "JSON",
+        },
         "analytics_snapshots": {
             "youtube_upload_id": "INTEGER",
             "youtube_video_id": "VARCHAR(128)",

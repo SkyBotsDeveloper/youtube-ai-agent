@@ -94,3 +94,26 @@ Supported positions:
 - `render_failed`
 
 If FFmpeg is missing or a command fails, the render is saved as `render_failed` with a clear error message.
+
+## Render Quality Preflight
+
+Before rendering, the workflow now warns when:
+
+- the same stock media URL appears in multiple scene beats
+- less than 70% of beats have unique media
+- narration audio duration is more than 15% longer than the estimated script duration
+
+Warnings do not block rendering by default. To block poor-quality plans:
+
+```bash
+python -m raatverse_agent render validate 1 --strict-quality
+python -m raatverse_agent render create 1 --strict-quality
+```
+
+Use the asset quality report before rendering:
+
+```bash
+python -m raatverse_agent assets quality 1
+```
+
+For better real output, generate scripts with scene-specific `stock_search_query` values, prepare assets with downloads enabled, review repeated URLs, then render.

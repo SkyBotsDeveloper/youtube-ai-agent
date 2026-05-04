@@ -7,6 +7,7 @@ import httpx
 from raatverse_agent.assets.errors import AssetWorkflowError, StockMediaProviderError, TTSProviderError
 from raatverse_agent.assets.media import create_stock_media_provider
 from raatverse_agent.assets.models import AssetPlan, AssetPreparationRequest, AudioAsset, TTSGenerationRequest
+from raatverse_agent.assets.quality import select_diverse_media_candidates
 from raatverse_agent.assets.tts import create_tts_provider
 from raatverse_agent.config import Settings
 from raatverse_agent.db.repositories import RaatVerseRepository
@@ -96,6 +97,11 @@ class AssetPreparationService:
 
         try:
             media_assets = self.media_provider.search_for_draft(draft)
+            media_assets = select_diverse_media_candidates(
+                media_assets,
+                beat_count=max(1, len(draft.scene_beats)),
+                settings=self.settings,
+            )
             download_enabled = (
                 request.download_enabled
                 if request.download_enabled is not None

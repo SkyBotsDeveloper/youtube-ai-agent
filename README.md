@@ -60,6 +60,7 @@ python -m raatverse_agent script generate --category horror --mock
 python -m raatverse_agent script approve 1
 python -m raatverse_agent tts generate 1 --mock
 python -m raatverse_agent assets prepare 1 --mock
+python -m raatverse_agent assets quality 1
 python -m raatverse_agent render create 1 --mock
 python -m raatverse_agent render list
 python -m raatverse_agent youtube metadata-preview 1
@@ -102,6 +103,7 @@ python -m raatverse_agent script generate --category horror --mock
 python -m raatverse_agent script approve 1
 python -m raatverse_agent tts generate 1 --mock
 python -m raatverse_agent assets prepare 1 --mock
+python -m raatverse_agent assets quality 1
 python -m raatverse_agent render create 1 --mock
 python -m raatverse_agent render list
 python -m raatverse_agent youtube metadata-preview 1
@@ -358,8 +360,12 @@ Free TTS:
 
 ```env
 TTS_PROVIDER=free
-TTS_VOICE=female_hindi
+TTS_VOICE=hi-IN-SwaraNeural
 TTS_LANGUAGE=hi-IN
+TTS_TEXT_MODE=auto
+TTS_USE_DEVANAGARI=true
+TTS_MAX_CHARS_PER_CHUNK=450
+TTS_PAUSE_STYLE=punctuation
 ```
 
 Pexels/Pixabay:
@@ -367,6 +373,9 @@ Pexels/Pixabay:
 ```env
 STOCK_MEDIA_PROVIDER=pexels
 PEXELS_API_KEY=replace-with-free-pexels-key
+STOCK_MEDIA_AVOID_DUPLICATES=true
+STOCK_MEDIA_PREFER_VERTICAL=true
+STOCK_MEDIA_MAX_REUSE_PER_URL=1
 ```
 
 or:
@@ -389,3 +398,21 @@ python -m raatverse_agent ops e2e-check --mock
 ```
 
 Keep `AUTO_UPLOAD=false`, `UPLOAD_PRIVACY_STATUS=private`, and `AUTO_UPLOAD_MUST_BE_APPROVED=true`.
+
+## Real Output Quality Workflow
+
+For better real Shorts output, keep Hinglish display narration but send Hindi TTS voices Devanagari-friendly text. Gemini prompts now request `narration_hinglish`, `narration_hindi_devanagari_for_tts`, short subtitle lines, and scene-level stock search fields.
+
+Recommended real render pass:
+
+```bash
+python -m raatverse_agent script generate --category horror
+python -m raatverse_agent script approve <id>
+python -m raatverse_agent tts generate <id>
+python -m raatverse_agent assets prepare <id> --download
+python -m raatverse_agent assets quality <asset_plan_id>
+python -m raatverse_agent render validate <asset_plan_id> --strict-quality
+python -m raatverse_agent render create <asset_plan_id>
+```
+
+If the asset report shows repeated URLs or weak beats, regenerate assets or improve scene search queries before uploading. Rendering remains local; YouTube upload still requires the existing private, human-approved workflow.

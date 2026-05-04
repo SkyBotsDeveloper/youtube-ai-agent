@@ -8,6 +8,7 @@ from raatverse_agent.script_generation.models import (
     ScriptGenerationRequest,
     ScriptSceneBeat,
     ScriptValidationResult,
+    script_draft_from_payload,
 )
 from raatverse_agent.script_generation.parsing import extract_json_object
 from raatverse_agent.script_generation.prompts import build_script_prompt
@@ -71,6 +72,49 @@ def test_prompt_template_creation(tmp_path):
     assert "urban_legend" in prompt
     assert settings.outro_cta in prompt
     assert "Return only a valid JSON object" in prompt
+    assert "narration_hindi_devanagari_for_tts" in prompt
+    assert "stock_search_query" in prompt
+
+
+def test_script_payload_preserves_tts_text_and_scene_search_metadata(tmp_path):
+    settings = _settings(tmp_path)
+    draft = script_draft_from_payload(
+        {
+            "title": "Raat Ka Darwaza",
+            "category": "horror",
+            "story_type": "atmospheric_horror",
+            "hook": "Raat ko darwaza khud khul gaya.",
+            "narration_hinglish": f"Raat ko darwaza khud khul gaya. {settings.outro_cta}",
+            "narration_hindi_devanagari_for_tts": "रात को दरवाजा खुद खुल गया। अगर कहानी पसंद आई हो।",
+            "scene_beats": [
+                {
+                    "start_second": 0,
+                    "end_second": 3,
+                    "narration": "Darwaza khud khula.",
+                    "visual_suggestion": "Old door opening in darkness.",
+                    "stock_search_query": "old wooden door dark hallway vertical",
+                    "negative_keywords": ["bright", "cartoon"],
+                    "mood": "eerie",
+                    "location": "old hallway",
+                    "camera_motion": "slow push-in",
+                }
+            ],
+            "subtitle_lines": ["Darwaza khud khula."],
+            "cta_line": settings.outro_cta,
+            "estimated_duration_seconds": settings.target_duration_seconds,
+            "language_style": settings.language_style,
+        },
+        provider="mock",
+        prompt_version="test",
+        default_category="horror",
+        default_story_type="atmospheric_horror",
+        default_language_style=settings.language_style,
+        cta_line=settings.outro_cta,
+    )
+
+    assert draft.tts_narration_script.startswith("रात")
+    assert draft.scene_beats[0].stock_search_query == "old wooden door dark hallway vertical"
+    assert draft.scene_beats[0].negative_keywords == ["bright", "cartoon"]
 
 
 def test_json_recovery_from_fenced_llm_response():

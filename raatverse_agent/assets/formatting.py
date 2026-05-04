@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from raatverse_agent.assets.models import AssetPlan, AudioAsset
+from raatverse_agent.assets.models import AssetPlan, AssetQualityReport, AudioAsset
 
 
 def format_audio_asset(audio: AudioAsset) -> str:
+    quality = audio.tts_quality_metadata or {}
+    warnings = "\n".join(f"  - {warning}" for warning in quality.get("warnings", [])) or "  - None"
     return (
         "RaatVerse narration audio generated\n"
         f"Audio ID: {audio.id}\n"
@@ -14,8 +16,12 @@ def format_audio_asset(audio: AudioAsset) -> str:
         f"Language: {audio.language}\n"
         f"File: {audio.file_path or 'None'}\n"
         f"Estimated duration: {audio.duration_seconds or 0:.2f}s\n"
+        f"TTS input characters: {quality.get('input_characters', len(audio.tts_text or ''))}\n"
+        f"TTS chunks sent: {quality.get('chunk_count', len(audio.tts_chunks))}\n"
         f"Subtitle timing lines: {len(audio.subtitle_timings)}\n"
         f"Scene timing suggestions: {len(audio.scene_timings)}\n"
+        "TTS quality warnings:\n"
+        f"{warnings}\n"
         f"Error: {audio.error_message or 'None'}"
     )
 
@@ -40,4 +46,33 @@ def format_asset_plan(plan: AssetPlan) -> str:
         f"{media_lines}\n"
         f"Error: {plan.error_message or 'None'}\n"
         "Next action: review assets before Phase 4 rendering."
+    )
+
+
+def format_asset_quality_report(report: AssetQualityReport) -> str:
+    providers = "\n".join(
+        f"  - {provider}: {count}"
+        for provider, count in sorted(report.provider_distribution.items())
+    ) or "  - None"
+    repeated = "\n".join(f"  - {url}" for url in report.repeated_urls) or "  - None"
+    weak = ", ".join(str(index) for index in report.weak_beats) or "None"
+    recommendations = "\n".join(
+        f"  - {item}" for item in report.recommendations
+    ) or "  - None"
+    return (
+        "RaatVerse asset quality report\n"
+        f"Asset plan ID: {report.asset_plan_id}\n"
+        f"Total beats: {report.total_beats}\n"
+        f"Total media assets: {report.total_media_assets}\n"
+        f"Unique media URLs: {report.unique_media_urls}\n"
+        f"Unique media ratio: {report.unique_media_ratio:.2f}\n"
+        f"Vertical media count: {report.vertical_media_count}\n"
+        f"Missing local files: {report.missing_local_files}\n"
+        f"Weak beats: {weak}\n"
+        "Provider distribution:\n"
+        f"{providers}\n"
+        "Repeated URLs:\n"
+        f"{repeated}\n"
+        "Recommendations:\n"
+        f"{recommendations}"
     )

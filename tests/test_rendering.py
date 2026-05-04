@@ -4,10 +4,12 @@ import sys
 from pathlib import Path
 
 import pytest
+from sqlalchemy.orm.attributes import flag_modified
 
 from raatverse_agent.assets.models import AssetPreparationRequest
 from raatverse_agent.assets.service import create_asset_preparation_service
 from raatverse_agent.config import Settings
+from raatverse_agent.db.models import AssetPlanRecord, AudioAssetRecord
 from raatverse_agent.db.repositories import RaatVerseRepository
 from raatverse_agent.db.session import initialize_database, session_scope
 from raatverse_agent.rendering.errors import RenderWorkflowError
@@ -103,6 +105,39 @@ def test_render_workflow_accepts_approved_asset_plan(tmp_path):
         validation = service.validate_asset_plan(asset_plan_id)
 
     assert validation.is_valid is True
+
+
+def test_render_preflight_quality_warnings_and_strict_block(tmp_path):
+    settings = _settings(tmp_path)
+    _, asset_plan_id = _create_asset_plan(settings, approved=True)
+
+    with session_scope(settings.database_url) as session:
+        record = session.get(AssetPlanRecord, asset_plan_id)
+        assert record is not None
+        media = list(record.media_assets_json or [])
+        for item in media:
+            item["source_url"] = "https://stock.example/reused.mp4"
+            item["width"] = 1920
+            item["height"] = 1080
+        record.media_assets_json = media
+        flag_modified(record, "media_assets_json")
+        if record.audio_asset_id:
+            audio = session.get(AudioAssetRecord, record.audio_asset_id)
+            assert audio is not None
+            audio.duration_seconds = 999.0
+        session.commit()
+
+    with session_scope(settings.database_url) as session:
+        repository = RaatVerseRepository(session)
+        service = create_render_workflow_service(settings=settings, repository=repository, mock=True)
+        validation = service.validate_asset_plan(asset_plan_id)
+        strict_validation = service.validate_asset_plan(asset_plan_id, strict_quality=True)
+
+    assert validation.is_valid is True
+    assert any("Repeated media URLs" in warning for warning in validation.warnings)
+    assert any("Audio duration exceeds" in warning for warning in validation.warnings)
+    assert strict_validation.is_valid is False
+    assert any("Strict quality check failed" in issue for issue in strict_validation.issues)
 
 
 def test_ass_subtitle_file_generation(tmp_path):

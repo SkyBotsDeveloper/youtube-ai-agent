@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from raatverse_agent.assets.models import AssetPlan, AudioAsset
+from raatverse_agent.assets.quality import analyze_asset_plan
 from raatverse_agent.config import Settings
 from raatverse_agent.db.repositories import RaatVerseRepository
 from raatverse_agent.rendering.errors import RenderProviderError, RenderWorkflowError
@@ -34,7 +35,13 @@ class RenderWorkflowService:
         self.repository = repository
         self.renderer = renderer
 
-    def validate_asset_plan(self, asset_plan_id: int, *, force: bool = False) -> RenderValidationResult:
+    def validate_asset_plan(
+        self,
+        asset_plan_id: int,
+        *,
+        force: bool = False,
+        strict_quality: bool = False,
+    ) -> RenderValidationResult:
         issues: list[str] = []
         warnings: list[str] = []
         loaded = self._load_context(asset_plan_id)
@@ -56,13 +63,21 @@ class RenderWorkflowService:
             warnings.append("Asset plan has no scene timings; renderer will use one fallback scene.")
         if not asset_plan.subtitle_timings:
             warnings.append("Asset plan has no subtitle timings; render will have no captions.")
+        quality_warnings = self._quality_warnings(asset_plan, audio_asset, draft)
+        warnings.extend(quality_warnings)
+        if strict_quality and quality_warnings:
+            issues.extend(f"Strict quality check failed: {warning}" for warning in quality_warnings)
         if force:
             warnings.extend(f"Forced despite issue: {issue}" for issue in issues)
             issues = []
         return RenderValidationResult(is_valid=not issues, issues=issues, warnings=warnings)
 
     def create_render(self, asset_plan_id: int, request: RenderRequest) -> VideoRender:
-        validation = self.validate_asset_plan(asset_plan_id, force=request.force)
+        validation = self.validate_asset_plan(
+            asset_plan_id,
+            force=request.force,
+            strict_quality=request.strict_quality,
+        )
         if not validation.is_valid:
             raise RenderWorkflowError("; ".join(validation.issues))
 
@@ -131,6 +146,31 @@ class RenderWorkflowService:
             else None
         )
         return draft, asset_plan, audio_asset
+
+    def _quality_warnings(
+        self,
+        asset_plan: AssetPlan,
+        audio_asset: AudioAsset | None,
+        draft: ScriptDraft,
+    ) -> list[str]:
+        warnings: list[str] = []
+        report = analyze_asset_plan(asset_plan, self.settings)
+        if report.repeated_urls:
+            warnings.append(
+                f"Repeated media URLs detected across beats: {len(report.repeated_urls)} repeated source(s)."
+            )
+        if report.unique_media_ratio < 0.70:
+            warnings.append(
+                f"Only {report.unique_media_ratio:.0%} of beats have unique media; target is at least 70%."
+            )
+        if audio_asset and audio_asset.duration_seconds:
+            max_duration = draft.estimated_duration_seconds * 1.15
+            if audio_asset.duration_seconds > max_duration:
+                warnings.append(
+                    "Audio duration exceeds estimated script duration by more than 15%; "
+                    "subtitles/scene timings may drift."
+                )
+        return warnings
 
 
 def create_render_workflow_service(

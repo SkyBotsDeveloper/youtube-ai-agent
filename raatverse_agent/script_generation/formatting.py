@@ -55,6 +55,8 @@ def format_script_draft(draft: ScriptDraft) -> str:
         f"CTA: {draft.cta_line}\n"
         "Narration:\n"
         f"{draft.narration_script}\n"
+        "TTS narration:\n"
+        f"{draft.tts_narration_script or 'None'}\n"
         "Scene beats:\n"
         f"{beats}\n"
         "Subtitle lines:\n"
