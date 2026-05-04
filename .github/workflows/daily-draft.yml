@@ -1,0 +1,70 @@
+name: Daily Draft
+
+on:
+  schedule:
+    # 8:00 PM IST is 2:30 PM UTC.
+    - cron: "30 14 * * *"
+  workflow_dispatch:
+    inputs:
+      mock_mode:
+        description: "Run with mock providers"
+        required: true
+        default: "true"
+
+permissions:
+  contents: read
+
+jobs:
+  daily-draft:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: sqlite:///./data/raatverse_agent.db
+      AUTOMATION_MODE: mock
+      LLM_PROVIDER: mock
+      TTS_PROVIDER: mock
+      STOCK_MEDIA_PROVIDER: mock
+      VIDEO_RENDERER: mock
+      DAILY_STOP_AFTER_DRAFT: "true"
+      AUTO_PREPARE_ASSETS: "false"
+      AUTO_RENDER: "false"
+      AUTO_PREPARE_UPLOAD: "false"
+      AUTO_UPLOAD: "false"
+      AUTO_UPLOAD_MUST_BE_APPROVED: "true"
+      WORKFLOW_LOG_DIR: ./outputs/logs
+      MOCK_MODE: ${{ github.event.inputs.mock_mode || 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Initialize database
+        run: python -m raatverse_agent db init
+
+      - name: Run safe daily draft workflow
+        run: |
+          if [ "$MOCK_MODE" = "true" ]; then
+            python -m raatverse_agent workflow daily-draft --mock
+          else
+            python -m raatverse_agent workflow daily-draft
+          fi
+
+      - name: Print review queue
+        run: python -m raatverse_agent review queue
+
+      - name: Upload mock workflow artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: raatverse-daily-draft-mock-artifacts
+          path: |
+            data/raatverse_agent.db
+            outputs/logs/**
+          if-no-files-found: ignore
+          retention-days: 7

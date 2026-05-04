@@ -1,0 +1,16 @@
+[project]
+name = "raatverse-ai-youtube-shorts-agent"
+version = "0.1.0"
+description = "Local-first automation agent for RaatVerse Hindi/Hinglish YouTube Shorts."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "RaatVerse" }
+]
+license = { text = "Proprietary" }
+keywords = ["youtube", "shorts", "automation", "fastapi", "sqlite", "ai"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q -p no:cacheprovider"

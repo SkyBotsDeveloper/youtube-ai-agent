@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache
+.pytest_cache/
+.mypy_cache
+.mypy_cache/
+.ruff_cache
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv
+.venv/
+venv
+venv/
+env
+env/
+ENV
+ENV/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Local runtime data
+data/*.db
+data/*.db-*
+data/*.sqlite
+data/*.sqlite3
+*.sqlite
+*.sqlite3
+outputs/
+logs
+logs/
+*.log
+secrets/
+*_token.json
+youtube_token.json
+
+# Generated media/assets
+*.mp3
+*.wav
+*.mp4
+*.mov
+*.webm
+*.ass
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

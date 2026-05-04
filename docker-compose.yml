@@ -1,0 +1,11 @@
+services:
+  api:
+    build: .
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+    command: uvicorn raatverse_agent.api.main:app --host 0.0.0.0 --port 8000 --reload

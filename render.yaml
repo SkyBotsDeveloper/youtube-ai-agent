@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: raatverse-agent
+    env: docker
+    plan: free
+    autoDeploy: false
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: AUTOMATION_MODE
+        value: mock
+      - key: AUTO_UPLOAD
+        value: "false"
+      - key: AUTO_UPLOAD_MUST_BE_APPROVED
+        value: "true"
+      - key: DASHBOARD_REQUIRE_TOKEN
+        value: "true"
+      - key: DASHBOARD_ADMIN_TOKEN
+        sync: false
+      - key: DATABASE_URL
+        sync: false
