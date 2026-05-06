@@ -73,7 +73,8 @@ class Settings(BaseSettings):
     tts_pause_style: Literal["punctuation", "plain"] = "punctuation"
     cta_tts_override: str = ""
     tts_cta_slower: bool = True
-    tts_cta_rate_reduction: int = Field(default=8, ge=0, le=50)
+    tts_cta_rate_reduction: int = Field(default=10, ge=0, le=50)
+    tts_cta_extra_pause_ms: int = Field(default=250, ge=0, le=2000)
 
     stock_media_provider: str = "mock"
     pexels_api_key: str = ""
@@ -107,8 +108,11 @@ class Settings(BaseSettings):
     watermark_text: str = "RaatVerse"
     watermark_position: str = "top-right"
     subtitle_style: str = "shorts_high_contrast"
-    subtitle_global_offset_seconds: float = Field(default=0.35, ge=0.0)
+    subtitle_global_offset_seconds: float = Field(default=0.0, ge=0.0)
     subtitle_end_padding_seconds: float = Field(default=0.15, ge=0.0)
+    subtitle_alignment_mode: Literal["boundary_first", "estimated"] = "boundary_first"
+    subtitle_max_early_start_seconds: float = Field(default=0.25, ge=0.0)
+    subtitle_max_late_start_seconds: float = Field(default=0.75, ge=0.0)
     cta_min_duration_seconds: float = Field(default=7.0, ge=1.0)
     cta_end_padding_seconds: float = Field(default=1.5, ge=0.0)
     cta_visual_hold_seconds: float = Field(default=2.0, ge=0.0)
@@ -117,6 +121,10 @@ class Settings(BaseSettings):
     outro_subscribe_button_enabled: bool = True
     outro_subscribe_button_text: str = "Subscribe"
     outro_subscribe_button_style: str = "red"
+    outro_subscribe_button_width: int = Field(default=420, ge=120)
+    outro_subscribe_button_height: int = Field(default=90, ge=40)
+    outro_subscribe_button_y_offset: int = 180
+    outro_layout_mode: str = "centered_clean"
 
     youtube_client_id: str = ""
     youtube_client_secret: str = ""

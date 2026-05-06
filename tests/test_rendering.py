@@ -218,6 +218,23 @@ def test_render_preflight_quality_warnings_and_strict_block(tmp_path):
     assert any("Strict quality check failed" in issue for issue in strict_validation.issues)
 
 
+def test_render_strict_quality_blocks_invalid_subtitle_alignment(tmp_path):
+    settings = _settings(
+        tmp_path,
+        subtitle_global_offset_seconds=1.0,
+        subtitle_max_late_start_seconds=0.75,
+    )
+    _, asset_plan_id = _create_asset_plan(settings, approved=True)
+
+    with session_scope(settings.database_url) as session:
+        repository = RaatVerseRepository(session)
+        service = create_render_workflow_service(settings=settings, repository=repository, mock=True)
+        validation = service.validate_asset_plan(asset_plan_id, strict_quality=True)
+
+    assert validation.is_valid is False
+    assert any("Subtitle" in issue for issue in validation.issues)
+
+
 def test_render_timing_report_is_persisted(tmp_path):
     settings = _settings(tmp_path)
     _, asset_plan_id = _create_asset_plan(settings, approved=True)
@@ -234,6 +251,8 @@ def test_render_timing_report_is_persisted(tmp_path):
     assert shown.timing_report["subtitle_global_offset_seconds"] == settings.subtitle_global_offset_seconds
     assert shown.timing_report["cta_outro_screen_enabled"] is True
     assert shown.timing_report["cta_subscribe_button_enabled"] is True
+    assert shown.timing_report["subtitle_timing_mode_used"] in {"chunk_estimate", "boundary_first"}
+    assert shown.timing_report["subtitle_fallback_aligned_lines"] >= 0
 
 
 def test_render_timing_report_format_includes_new_cta_fields(tmp_path):
@@ -248,6 +267,8 @@ def test_render_timing_report_format_includes_new_cta_fields(tmp_path):
     formatted = format_video_render(render)
 
     assert "Subtitle offset used:" in formatted
+    assert "Subtitle timing mode used:" in formatted
+    assert "Boundary-aligned subtitle lines:" in formatted
     assert "CTA TTS mode:" in formatted
     assert "CTA subscribe button enabled: True" in formatted
 
@@ -285,6 +306,7 @@ def test_outro_subscribe_button_render_config(tmp_path):
     draw = outro_screen_drawtext(settings)
 
     assert "drawbox=" in draw
+    assert "x=330:y=" in draw
     assert "text='Subscribe'" in draw
     assert "0xE62117" in draw
 

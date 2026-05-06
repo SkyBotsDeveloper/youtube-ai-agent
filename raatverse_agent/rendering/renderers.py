@@ -292,8 +292,11 @@ def watermark_drawtext(settings: Settings) -> str:
 def outro_screen_drawtext(settings: Settings) -> str:
     brand_size = max(56, round(settings.render_width * 0.07))
     cta_size = max(42, round(settings.render_width * 0.046))
-    button_w = max(360, round(settings.render_width * 0.42))
-    button_h = max(82, round(settings.render_height * 0.054))
+    button_w = min(settings.render_width - 160, max(180, settings.outro_subscribe_button_width))
+    button_h = max(48, settings.outro_subscribe_button_height)
+    button_x = round((settings.render_width - button_w) / 2)
+    base_y = settings.render_height * 0.62
+    button_y = round(min(settings.render_height - button_h - 260, max(settings.render_height * 0.58, base_y + settings.outro_subscribe_button_y_offset)))
     button_size = max(42, round(settings.render_width * 0.05))
     line1 = _escape_drawtext("Agar kahani pasand aayi ho, to RaatVerse ko subscribe karo.")
     line2 = _escape_drawtext("Kal raat ek aur nayi kahani milegi.")
@@ -317,11 +320,11 @@ def outro_screen_drawtext(settings: Settings) -> str:
         filters.extend(
             [
                 "drawbox="
-                f"x=(w-{button_w})/2:y=h*0.66:w={button_w}:h={button_h}:"
+                f"x={button_x}:y={button_y}:w={button_w}:h={button_h}:"
                 f"color={button_color}:t=fill",
                 "drawtext="
                 f"text='{button_text}':fontcolor=white:fontsize={button_size}:"
-                f"x=(w-tw)/2:y=h*0.66+({button_h}-th)/2:"
+                f"x=(w-tw)/2:y={button_y}+({button_h}-th)/2:"
                 "shadowcolor=black@0.55:shadowx=2:shadowy=2",
             ]
         )

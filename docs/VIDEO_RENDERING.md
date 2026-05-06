@@ -69,14 +69,19 @@ The renderer generates `.ass` subtitle files with:
 - line wrapping for Shorts-style readability
 - Unicode-safe UTF-8 output for Hindi/Hinglish text
 
-If captions appear slightly early in a real render, tune:
+Subtitle timing is generated from the TTS narration order. In real edge-tts mode, the app prefers boundary events and chunk timing metadata before falling back to proportional line timing.
+
+Recommended sync settings:
 
 ```env
-SUBTITLE_GLOBAL_OFFSET_SECONDS=0.35
+SUBTITLE_ALIGNMENT_MODE=boundary_first
+SUBTITLE_GLOBAL_OFFSET_SECONDS=0.00
 SUBTITLE_END_PADDING_SECONDS=0.15
+SUBTITLE_MAX_EARLY_START_SECONDS=0.25
+SUBTITLE_MAX_LATE_START_SECONDS=0.75
 ```
 
-The render timing alignment applies this offset after scaling subtitles to the actual TTS audio duration when available. The goal is for captions to appear with or just after speech, not before it.
+The goal is for captions to start at the matching spoken segment, never several seconds before it. Use `SUBTITLE_GLOBAL_OFFSET_SECONDS` only for small final tuning after checking the render timing report.
 
 ## CTA and Audio-Based Timing
 
@@ -97,8 +102,11 @@ CTA_END_PADDING_SECONDS=1.5
 CTA_VISUAL_HOLD_SECONDS=2
 MIN_SCENE_BEAT_DURATION_SECONDS=2.5
 MIN_SUBTITLE_DURATION_SECONDS=1.2
-SUBTITLE_GLOBAL_OFFSET_SECONDS=0.35
+SUBTITLE_ALIGNMENT_MODE=boundary_first
+SUBTITLE_GLOBAL_OFFSET_SECONDS=0.00
 SUBTITLE_END_PADDING_SECONDS=0.15
+SUBTITLE_MAX_EARLY_START_SECONDS=0.25
+SUBTITLE_MAX_LATE_START_SECONDS=0.75
 ```
 
 The FFmpeg renderer creates a dedicated final outro screen with a dark cinematic background, RaatVerse text, the two-line subscribe CTA, and an optional generic red subscribe button. This is local FFmpeg composition only; it does not change YouTube upload behavior.
@@ -109,7 +117,13 @@ Outro button config:
 OUTRO_SUBSCRIBE_BUTTON_ENABLED=true
 OUTRO_SUBSCRIBE_BUTTON_TEXT=Subscribe
 OUTRO_SUBSCRIBE_BUTTON_STYLE=red
+OUTRO_SUBSCRIBE_BUTTON_WIDTH=420
+OUTRO_SUBSCRIBE_BUTTON_HEIGHT=90
+OUTRO_SUBSCRIBE_BUTTON_Y_OFFSET=180
+OUTRO_LAYOUT_MODE=centered_clean
 ```
+
+The button is drawn with fixed safe-area coordinates calculated from the render resolution, so it appears centered in the outro area instead of at the top-left.
 
 ## Watermark
 
@@ -156,7 +170,22 @@ python -m raatverse_agent render validate 1 --strict-quality
 python -m raatverse_agent render create 1 --strict-quality
 ```
 
-After `render create`, the CLI prints a timing report with audio duration, final video duration, CTA duration, shortest beat duration, subtitle count, subtitle offset, subtitle timing source, CTA TTS mode, outro screen/button flags, whether timing was scaled to audio, and warnings.
+After `render create`, the CLI prints a timing report with audio duration, final video duration, CTA duration, shortest beat duration, subtitle count, subtitle timing mode, boundary/fallback aligned line counts, earliest/latest subtitle start deltas, subtitle offset, subtitle timing source, CTA TTS mode, outro screen/button flags, whether timing was scaled to audio, and warnings.
+
+If subtitles are visibly early, run:
+
+```bash
+python -m raatverse_agent render validate <asset_plan_id> --strict-quality
+python -m raatverse_agent render create <asset_plan_id>
+```
+
+Review the timing report fields:
+
+- `Subtitle timing mode used`
+- `Boundary-aligned subtitle lines`
+- `Fallback-aligned subtitle lines`
+- `Earliest subtitle start delta`
+- `Latest subtitle start delta`
 
 Use the asset quality report before rendering:
 

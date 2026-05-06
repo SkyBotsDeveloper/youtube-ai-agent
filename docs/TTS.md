@@ -34,7 +34,8 @@ TTS_MAX_CHARS_PER_CHUNK=450
 TTS_PAUSE_STYLE=punctuation
 CTA_TTS_OVERRIDE=
 TTS_CTA_SLOWER=true
-TTS_CTA_RATE_REDUCTION=8
+TTS_CTA_RATE_REDUCTION=10
+TTS_CTA_EXTRA_PAUSE_MS=250
 ```
 
 Run:
@@ -59,16 +60,16 @@ When no explicit Devanagari field exists, `TTS_TEXT_MODE=auto` uses a local norm
 Hindi neural voices can pronounce the Roman word `subscribe` inconsistently. The TTS pipeline keeps the visible Hinglish CTA for subtitles, but replaces the spoken CTA with a clearer Hindi/Devanagari variant for TTS:
 
 ```text
-अगर कहानी पसंद आई हो, तो रातवर्स चैनल को सब्सक्राइब करें। कल रात एक और नई कहानी मिलेगी।
+अगर कहानी पसंद आई हो, तो रातवर्स चैनल को सब्सक्राइब ज़रूर करें। कल रात एक और नई कहानी मिलेगी।
 ```
 
 To override only the spoken CTA text:
 
 ```env
-CTA_TTS_OVERRIDE=अगर कहानी पसंद आई हो, तो रातवर्स चैनल को सब्सक्राइब करें। कल रात एक और नई कहानी मिलेगी।
+CTA_TTS_OVERRIDE=अगर कहानी पसंद आई हो, तो रातवर्स चैनल को सब्सक्राइब ज़रूर करें। कल रात एक और नई कहानी मिलेगी।
 ```
 
-If `TTS_CTA_SLOWER=true`, the edge-tts adapter speaks CTA chunks with a slightly slower rate using `TTS_CTA_RATE_REDUCTION`. Story narration keeps the normal `TTS_SPEAKING_RATE`.
+If `TTS_CTA_SLOWER=true`, the edge-tts adapter speaks CTA chunks with a slightly slower rate using `TTS_CTA_RATE_REDUCTION`. `TTS_CTA_EXTRA_PAUSE_MS` is represented as punctuation pauses in the CTA text so the phrase stays clearer without affecting the story narration.
 
 Before edge-tts receives text, the app:
 
@@ -80,6 +81,8 @@ Before edge-tts receives text, the app:
 The generated `audio_assets` record stores the final `tts_text`, chunk list, and quality metadata. CLI output reports input characters, chunk count, duration, and warnings.
 
 When `ffprobe` is available through the local FFmpeg install, the free TTS provider probes the generated audio file and stores the actual duration. Render timing then uses that duration as the source of truth so subtitles and scene beats are scaled to the spoken audio instead of only the script estimate.
+
+For subtitle sync, edge-tts boundary events are captured when the provider exposes them. The app stores boundary metadata and chunk timing metadata in `tts_quality_metadata`, then uses those timings to align subtitle lines in narration order.
 
 ## Stored Audio Metadata
 

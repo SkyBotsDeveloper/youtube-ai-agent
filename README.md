@@ -368,7 +368,8 @@ TTS_MAX_CHARS_PER_CHUNK=450
 TTS_PAUSE_STYLE=punctuation
 CTA_TTS_OVERRIDE=
 TTS_CTA_SLOWER=true
-TTS_CTA_RATE_REDUCTION=8
+TTS_CTA_RATE_REDUCTION=10
+TTS_CTA_EXTRA_PAUSE_MS=250
 ```
 
 Pexels/Pixabay:
@@ -432,17 +433,26 @@ CTA_END_PADDING_SECONDS=1.5
 CTA_VISUAL_HOLD_SECONDS=2
 MIN_SCENE_BEAT_DURATION_SECONDS=2.5
 MIN_SUBTITLE_DURATION_SECONDS=1.2
-SUBTITLE_GLOBAL_OFFSET_SECONDS=0.35
+SUBTITLE_ALIGNMENT_MODE=boundary_first
+SUBTITLE_GLOBAL_OFFSET_SECONDS=0.00
 SUBTITLE_END_PADDING_SECONDS=0.15
+SUBTITLE_MAX_EARLY_START_SECONDS=0.25
+SUBTITLE_MAX_LATE_START_SECONDS=0.75
 OUTRO_SUBSCRIBE_BUTTON_ENABLED=true
 OUTRO_SUBSCRIBE_BUTTON_TEXT=Subscribe
 OUTRO_SUBSCRIBE_BUTTON_STYLE=red
+OUTRO_SUBSCRIBE_BUTTON_WIDTH=420
+OUTRO_SUBSCRIBE_BUTTON_HEIGHT=90
+OUTRO_SUBSCRIBE_BUTTON_Y_OFFSET=180
+OUTRO_LAYOUT_MODE=centered_clean
 ```
 
-The render workflow reserves the final CTA/outro duration, scales scene/subtitle timings to actual TTS audio duration when available, applies a small subtitle delay so captions do not appear before speech, and prints a timing report after render creation. The final FFmpeg outro screen includes RaatVerse text, the CTA, and a generic red subscribe button when enabled.
+The render workflow reserves the final CTA/outro duration, scales visual scene timings to actual TTS audio duration when available, and aligns subtitle lines from TTS boundary/chunk timing metadata instead of only scene durations. The final FFmpeg outro screen includes RaatVerse text, the CTA, and a generic centered red subscribe button when enabled.
 
 If the CTA pronunciation needs manual tuning, set `CTA_TTS_OVERRIDE` to a TTS-only Hindi/Devanagari line such as:
 
 ```env
-CTA_TTS_OVERRIDE=अगर कहानी पसंद आई हो, तो रातवर्स चैनल को सब्सक्राइब करें। कल रात एक और नई कहानी मिलेगी।
+CTA_TTS_OVERRIDE=अगर कहानी पसंद आई हो, तो रातवर्स चैनल को सब्सक्राइब ज़रूर करें। कल रात एक और नई कहानी मिलेगी।
 ```
+
+If subtitle sync looks wrong, inspect the timing diagnostics printed after `render create`: subtitle timing mode, boundary/fallback line counts, and earliest/latest subtitle start deltas. Strict render validation fails when subtitle timing diagnostics exceed the configured thresholds.

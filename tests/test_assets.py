@@ -12,7 +12,7 @@ from raatverse_agent.assets.service import (
     create_asset_preparation_service,
     create_tts_asset_service,
 )
-from raatverse_agent.assets.timing import build_subtitle_timings
+from raatverse_agent.assets.timing import build_subtitle_timings, build_tts_aligned_subtitle_timings
 from raatverse_agent.assets.tts import EdgeFreeTTSProvider
 from raatverse_agent.assets.tts_text import (
     build_cta_tts_text,
@@ -113,7 +113,7 @@ def test_cta_tts_normalization_uses_clear_subscribe_phrase(tmp_path):
 
     prepared = prepare_tts_text(draft, settings)
 
-    assert "\u0938\u092c\u094d\u0938\u0915\u094d\u0930\u093e\u0907\u092c \u0915\u0930\u0947\u0902" in prepared.tts_text
+    assert "\u0938\u092c\u094d\u0938\u0915\u094d\u0930\u093e\u0907\u092c \u091c\u093c\u0930\u0942\u0930 \u0915\u0930\u0947\u0902" in prepared.tts_text
     assert prepared.cta_tts_mode == "auto"
     assert is_cta_tts_chunk(prepared.chunks[-1], build_cta_tts_text(settings))
 
@@ -131,6 +131,62 @@ def test_cta_tts_override_is_used_only_for_tts_text(tmp_path):
     assert override in prepared.tts_text
     assert settings.outro_cta in draft.narration_script
     assert prepared.cta_tts_mode == "override"
+
+
+def test_subtitle_alignment_uses_boundary_events_when_available(tmp_path):
+    settings = _settings(tmp_path, subtitle_global_offset_seconds=0.0)
+    draft_id = _create_draft(settings, approved=True)
+
+    with session_scope(settings.database_url) as session:
+        draft = RaatVerseRepository(session).get_script_draft(draft_id)
+
+    chunks = ["पहला हिस्सा।", "अंत में सब्सक्राइब ज़रूर करें।"]
+    metadata = {
+        "tts_chunk_timings": [
+            {"chunk_index": 0, "text": chunks[0], "start_second": 0.0, "end_second": 8.0},
+            {"chunk_index": 1, "text": chunks[1], "start_second": 8.0, "end_second": 12.0},
+        ],
+        "edge_boundary_events": [
+            {"chunk_index": 0, "start_second": 0.2, "end_second": 1.0, "text": "पहला"},
+            {"chunk_index": 1, "start_second": 8.3, "end_second": 9.0, "text": "सब्सक्राइब"},
+        ],
+    }
+
+    timings, diagnostics = build_tts_aligned_subtitle_timings(
+        draft=draft,
+        duration_seconds=12,
+        settings=settings,
+        tts_text=" ".join(chunks),
+        tts_chunks=chunks,
+        tts_quality_metadata=metadata,
+    )
+
+    assert timings
+    assert diagnostics["mode_used"] == "boundary_first"
+    assert diagnostics["boundary_aligned_lines"] > 0
+    assert min(item.start_second for item in timings) >= 0.2
+
+
+def test_subtitle_alignment_fallback_estimates_from_chunks(tmp_path):
+    settings = _settings(tmp_path, subtitle_global_offset_seconds=0.0)
+    draft_id = _create_draft(settings, approved=True)
+
+    with session_scope(settings.database_url) as session:
+        draft = RaatVerseRepository(session).get_script_draft(draft_id)
+
+    timings, diagnostics = build_tts_aligned_subtitle_timings(
+        draft=draft,
+        duration_seconds=18,
+        settings=settings,
+        tts_text="story chunk subscribe chunk",
+        tts_chunks=["story chunk", "subscribe chunk"],
+        tts_quality_metadata={},
+    )
+
+    assert timings
+    assert diagnostics["mode_used"] == "chunk_estimate"
+    assert diagnostics["fallback_aligned_lines"] == len(timings)
+    assert timings[0].start_second >= 0
 
 
 def test_free_tts_provider_returns_failed_metadata_when_network_fails(monkeypatch, tmp_path):

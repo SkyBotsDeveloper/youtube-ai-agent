@@ -69,6 +69,7 @@ class MockTTSProvider(TTSProvider):
             audio_duration_seconds=duration,
             estimated_script_duration_seconds=draft.estimated_duration_seconds,
         )
+        quality["tts_chunk_timings"] = _estimated_chunk_timings(prepared.chunks, duration)
         output_dir = Path(self.settings.tts_cache_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         filename = f"mock-script-{draft.id or draft.draft_uid}.{self.settings.tts_output_format}"
@@ -90,7 +91,14 @@ class MockTTSProvider(TTSProvider):
             tts_text=prepared.tts_text,
             tts_chunks=prepared.chunks,
             tts_quality_metadata=quality,
-            subtitle_timings=build_subtitle_timings(draft, duration, self.settings),
+            subtitle_timings=build_subtitle_timings(
+                draft,
+                duration,
+                self.settings,
+                tts_text=prepared.tts_text,
+                tts_chunks=prepared.chunks,
+                tts_quality_metadata=quality,
+            ),
             scene_timings=build_scene_timing_suggestions(draft, duration, self.settings),
             status="asset_ready",
         )
@@ -110,7 +118,15 @@ class EdgeFreeTTSProvider(TTSProvider):
             audio_duration_seconds=duration,
             estimated_script_duration_seconds=draft.estimated_duration_seconds,
         )
-        subtitle_timings = build_subtitle_timings(draft, duration, self.settings)
+        quality["tts_chunk_timings"] = _estimated_chunk_timings(prepared.chunks, duration)
+        subtitle_timings = build_subtitle_timings(
+            draft,
+            duration,
+            self.settings,
+            tts_text=prepared.tts_text,
+            tts_chunks=prepared.chunks,
+            tts_quality_metadata=quality,
+        )
         scene_timings = build_scene_timing_suggestions(draft, duration, self.settings)
         output_dir = Path(self.settings.tts_cache_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -119,9 +135,14 @@ class EdgeFreeTTSProvider(TTSProvider):
         last_error: Exception | None = None
         for attempt in range(self.settings.tts_max_retries + 1):
             try:
-                boundary_events = asyncio.run(self._save_with_edge_tts(prepared.chunks, file_path))
+                boundary_events, chunk_timings = asyncio.run(self._save_with_edge_tts(prepared.chunks, file_path))
                 actual_duration = probe_audio_duration_seconds(file_path, self.settings)
                 final_duration = actual_duration or duration
+                boundary_events, chunk_timings = _scale_tts_timing_metadata(
+                    boundary_events,
+                    chunk_timings,
+                    final_duration,
+                )
                 quality = build_tts_quality_metadata(
                     prepared,
                     audio_duration_seconds=final_duration,
@@ -129,7 +150,16 @@ class EdgeFreeTTSProvider(TTSProvider):
                 )
                 quality["edge_boundary_event_count"] = len(boundary_events)
                 quality["edge_boundary_events_sample"] = boundary_events[:12]
-                subtitle_timings = build_subtitle_timings(draft, final_duration, self.settings)
+                quality["edge_boundary_events"] = boundary_events
+                quality["tts_chunk_timings"] = chunk_timings
+                subtitle_timings = build_subtitle_timings(
+                    draft,
+                    final_duration,
+                    self.settings,
+                    tts_text=prepared.tts_text,
+                    tts_chunks=prepared.chunks,
+                    tts_quality_metadata=quality,
+                )
                 scene_timings = build_scene_timing_suggestions(draft, final_duration, self.settings)
                 return AudioAsset(
                     script_draft_id=draft.id or 0,
@@ -152,7 +182,7 @@ class EdgeFreeTTSProvider(TTSProvider):
 
         raise TTSProviderError(f"Free TTS generation failed: {last_error}")
 
-    async def _save_with_edge_tts(self, chunks: list[str], file_path: Path) -> list[dict]:
+    async def _save_with_edge_tts(self, chunks: list[str], file_path: Path) -> tuple[list[dict], list[dict]]:
         try:
             import edge_tts
         except ImportError as exc:
@@ -167,7 +197,7 @@ class EdgeFreeTTSProvider(TTSProvider):
         rate = resolve_edge_rate(self.settings.tts_speaking_rate)
         cta_rate = resolve_cta_edge_rate(self.settings)
         if len(chunks) == 1:
-            return await self._write_edge_tts_part(
+            boundary_events = await self._write_edge_tts_part(
                 edge_tts=edge_tts,
                 text=chunks[0],
                 file_path=file_path,
@@ -175,27 +205,37 @@ class EdgeFreeTTSProvider(TTSProvider):
                 rate=cta_rate if is_cta_tts_chunk(chunks[0], self.settings) else rate,
                 chunk_index=0,
             )
+            duration = probe_audio_duration_seconds(file_path, self.settings) or estimate_audio_duration_seconds(chunks[0])
+            chunk_timing = _chunk_timing(0, chunks[0], 0.0, duration, cta_rate if is_cta_tts_chunk(chunks[0], self.settings) else rate, boundary_events)
+            return _with_absolute_boundary_times(boundary_events, chunk_start_seconds=0.0), [chunk_timing]
 
         temp_dir = Path(tempfile.mkdtemp(prefix="raatverse-tts-"))
         try:
             part_paths: list[Path] = []
             boundary_events: list[dict] = []
+            chunk_timings: list[dict] = []
+            cursor = 0.0
             for index, chunk in enumerate(chunks):
                 part_path = temp_dir / f"part-{index:03d}.{self.settings.tts_output_format}"
+                chunk_rate = cta_rate if is_cta_tts_chunk(chunk, self.settings) else rate
                 chunk_events = await self._write_edge_tts_part(
                     edge_tts=edge_tts,
                     text=chunk,
                     file_path=part_path,
                     voice=voice,
-                    rate=cta_rate if is_cta_tts_chunk(chunk, self.settings) else rate,
+                    rate=chunk_rate,
                     chunk_index=index,
                 )
-                boundary_events.extend(chunk_events)
+                part_duration = probe_audio_duration_seconds(part_path, self.settings) or estimate_audio_duration_seconds(chunk)
+                absolute_events = _with_absolute_boundary_times(chunk_events, chunk_start_seconds=cursor)
+                boundary_events.extend(absolute_events)
+                chunk_timings.append(_chunk_timing(index, chunk, cursor, cursor + part_duration, chunk_rate, absolute_events))
+                cursor += part_duration
                 part_paths.append(part_path)
             with file_path.open("wb") as output:
                 for part_path in part_paths:
                     output.write(part_path.read_bytes())
-            return boundary_events
+            return boundary_events, chunk_timings
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -230,6 +270,113 @@ class EdgeFreeTTSProvider(TTSProvider):
                         }
                     )
         return boundary_events
+
+
+def _edge_time_to_seconds(value) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number <= 0:
+        return 0.0
+    return number / 10_000_000
+
+
+def _with_absolute_boundary_times(
+    events: list[dict],
+    *,
+    chunk_start_seconds: float,
+) -> list[dict]:
+    normalized: list[dict] = []
+    for event in events:
+        offset_seconds = _edge_time_to_seconds(event.get("offset"))
+        duration_seconds = _edge_time_to_seconds(event.get("duration")) or 0.0
+        if offset_seconds is None:
+            normalized.append(dict(event))
+            continue
+        start = chunk_start_seconds + offset_seconds
+        normalized.append(
+            {
+                **event,
+                "start_second": round(start, 3),
+                "end_second": round(start + duration_seconds, 3),
+                "duration_seconds": round(duration_seconds, 3),
+            }
+        )
+    return normalized
+
+
+def _chunk_timing(
+    index: int,
+    text: str,
+    start_second: float,
+    end_second: float,
+    rate: str,
+    boundary_events: list[dict],
+) -> dict:
+    return {
+        "chunk_index": index,
+        "text": text,
+        "start_second": round(start_second, 3),
+        "end_second": round(max(end_second, start_second), 3),
+        "duration_seconds": round(max(0.0, end_second - start_second), 3),
+        "rate": rate,
+        "is_cta": is_cta_tts_chunk(text),
+        "boundary_event_count": len(boundary_events),
+    }
+
+
+def _scale_tts_timing_metadata(
+    boundary_events: list[dict],
+    chunk_timings: list[dict],
+    final_duration: float,
+) -> tuple[list[dict], list[dict]]:
+    raw_duration = max(
+        [float(item.get("end_second") or 0) for item in chunk_timings]
+        + [float(item.get("end_second") or 0) for item in boundary_events],
+        default=0.0,
+    )
+    if raw_duration <= 0 or final_duration <= 0:
+        return boundary_events, chunk_timings
+    ratio = final_duration / raw_duration
+    if abs(ratio - 1.0) < 0.01:
+        return boundary_events, chunk_timings
+
+    scaled_events: list[dict] = []
+    for event in boundary_events:
+        updated = dict(event)
+        if "start_second" in updated:
+            updated["start_second"] = round(float(updated["start_second"]) * ratio, 3)
+        if "end_second" in updated:
+            updated["end_second"] = round(float(updated["end_second"]) * ratio, 3)
+        if "duration_seconds" in updated:
+            updated["duration_seconds"] = round(float(updated["duration_seconds"]) * ratio, 3)
+        scaled_events.append(updated)
+
+    scaled_chunks: list[dict] = []
+    for chunk in chunk_timings:
+        updated = dict(chunk)
+        updated["start_second"] = round(float(updated.get("start_second") or 0) * ratio, 3)
+        updated["end_second"] = round(float(updated.get("end_second") or 0) * ratio, 3)
+        updated["duration_seconds"] = round(max(0.0, updated["end_second"] - updated["start_second"]), 3)
+        scaled_chunks.append(updated)
+    return scaled_events, scaled_chunks
+
+
+def _estimated_chunk_timings(chunks: list[str], total_duration: float) -> list[dict]:
+    chunks = [chunk for chunk in chunks if chunk.strip()]
+    if not chunks:
+        return []
+    weights = [max(1, len(chunk)) for chunk in chunks]
+    total_weight = sum(weights)
+    cursor = 0.0
+    timings: list[dict] = []
+    for index, (chunk, weight) in enumerate(zip(chunks, weights, strict=False)):
+        duration = total_duration * (weight / total_weight) if total_weight else total_duration / len(chunks)
+        end = total_duration if index == len(chunks) - 1 else cursor + duration
+        timings.append(_chunk_timing(index, chunk, cursor, end, "estimated", []))
+        cursor = end
+    return timings
 
 
 class LocalPlaceholderTTSProvider(TTSProvider):

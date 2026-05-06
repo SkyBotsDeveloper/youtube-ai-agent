@@ -18,7 +18,22 @@ def build_subtitle_timings(
     draft: ScriptDraft,
     duration_seconds: float | None = None,
     settings: Settings | None = None,
+    *,
+    tts_text: str | None = None,
+    tts_chunks: list[str] | None = None,
+    tts_quality_metadata: dict | None = None,
 ) -> list[SubtitleTiming]:
+    if settings is not None and (tts_text or tts_chunks or tts_quality_metadata):
+        timings, _ = build_tts_aligned_subtitle_timings(
+            draft=draft,
+            duration_seconds=duration_seconds,
+            settings=settings,
+            tts_text=tts_text,
+            tts_chunks=tts_chunks or [],
+            tts_quality_metadata=tts_quality_metadata or {},
+        )
+        return timings
+
     lines = _ensure_cta_subtitle_lines(
         draft.subtitle_lines or _split_script_into_subtitles(draft.narration_script),
         draft,
@@ -51,6 +66,89 @@ def build_subtitle_timings(
             settings=settings,
         )
     return timings
+
+
+def build_tts_aligned_subtitle_timings(
+    *,
+    draft: ScriptDraft,
+    duration_seconds: float | None,
+    settings: Settings,
+    tts_text: str | None = None,
+    tts_chunks: list[str] | None = None,
+    tts_quality_metadata: dict | None = None,
+) -> tuple[list[SubtitleTiming], dict]:
+    lines = _ensure_cta_subtitle_lines(
+        draft.subtitle_lines or _split_script_into_subtitles(draft.narration_script),
+        draft,
+    )
+    total_duration = float(duration_seconds or draft.estimated_duration_seconds)
+    if not lines:
+        return [], _empty_subtitle_alignment_diagnostics(settings)
+
+    metadata = tts_quality_metadata or {}
+    chunk_timings = _subtitle_chunk_timings(
+        tts_chunks=tts_chunks or [],
+        tts_text=tts_text or "",
+        metadata=metadata,
+        total_duration=total_duration,
+    )
+    boundary_events = _boundary_events_by_chunk(metadata)
+    if not chunk_timings:
+        chunk_timings = [
+            {
+                "chunk_index": 0,
+                "text": tts_text or draft.narration_script,
+                "start_second": 0.0,
+                "end_second": total_duration,
+                "duration_seconds": total_duration,
+                "boundary_event_count": 0,
+                "is_cta": False,
+            }
+        ]
+
+    assignments = _assign_subtitle_lines_to_chunks(lines, chunk_timings)
+    timings: list[SubtitleTiming] = []
+    boundary_aligned = 0
+    fallback_aligned = 0
+    deltas: list[float] = []
+    invalid_count = 0
+
+    for chunk_position, chunk in enumerate(chunk_timings):
+        line_indexes = assignments.get(chunk_position, [])
+        if not line_indexes:
+            continue
+        chunk_events = boundary_events.get(int(chunk.get("chunk_index", chunk_position)), [])
+        speech_start, speech_end, boundary_used = _chunk_speech_window(
+            chunk,
+            chunk_events,
+            settings,
+        )
+        allocated, chunk_deltas, chunk_invalid = _allocate_subtitle_indexes_for_speech_window(
+            lines=lines,
+            line_indexes=line_indexes,
+            speech_start=speech_start,
+            speech_end=speech_end,
+            settings=settings,
+        )
+        timings.extend(allocated)
+        deltas.extend(chunk_deltas)
+        invalid_count += chunk_invalid
+        if boundary_used:
+            boundary_aligned += len(allocated)
+        else:
+            fallback_aligned += len(allocated)
+
+    timings = sorted(timings, key=lambda item: (item.start_second, item.index))
+    timings = _renumber_subtitles(timings, total_duration)
+    diagnostics = _subtitle_alignment_diagnostics(
+        settings=settings,
+        mode_used="boundary_first" if boundary_aligned else "chunk_estimate",
+        boundary_aligned=boundary_aligned,
+        fallback_aligned=fallback_aligned,
+        deltas=deltas,
+        invalid_count=invalid_count,
+    )
+    return timings, diagnostics
 
 
 def build_scene_timing_suggestions(
@@ -199,13 +297,15 @@ def align_asset_plan_timing_to_audio(
         scene.model_copy(update={"index": index})
         for index, scene in enumerate(sorted(aligned_scenes, key=lambda item: item.start_second))
     ]
-    aligned_subtitles = _build_aligned_subtitle_timings(
+    aligned_subtitles, subtitle_diagnostics = _build_aligned_subtitle_timings(
         draft=draft,
         source_timings=asset_plan.subtitle_timings,
         total_duration=target_duration,
         cta_start=cta_start,
         cta_duration=cta_duration,
         settings=settings,
+        audio_asset=audio_asset,
+        audio_duration=effective_audio_duration,
     )
     shortest_scene = min((scene.end_second - scene.start_second for scene in aligned_scenes), default=0.0)
     shortest_subtitle = min((item.end_second - item.start_second for item in aligned_subtitles), default=0.0)
@@ -216,6 +316,7 @@ def align_asset_plan_timing_to_audio(
         audio_duration=effective_audio_duration,
         final_duration=target_duration,
         settings=settings,
+        subtitle_diagnostics=subtitle_diagnostics,
     )
     report = {
         "actual_audio_duration_seconds": round(effective_audio_duration, 2),
@@ -224,6 +325,12 @@ def align_asset_plan_timing_to_audio(
         "shortest_scene_beat_duration_seconds": round(shortest_scene, 2),
         "shortest_subtitle_duration_seconds": round(shortest_subtitle, 2),
         "subtitle_count": len(aligned_subtitles),
+        "subtitle_timing_mode_used": subtitle_diagnostics.get("mode_used", "unknown"),
+        "subtitle_boundary_aligned_lines": int(subtitle_diagnostics.get("boundary_aligned_lines") or 0),
+        "subtitle_fallback_aligned_lines": int(subtitle_diagnostics.get("fallback_aligned_lines") or 0),
+        "subtitle_earliest_start_delta_seconds": subtitle_diagnostics.get("earliest_start_delta_seconds"),
+        "subtitle_latest_start_delta_seconds": subtitle_diagnostics.get("latest_start_delta_seconds"),
+        "subtitle_invalid_line_count": int(subtitle_diagnostics.get("invalid_line_count") or 0),
         "subtitle_global_offset_seconds": round(settings.subtitle_global_offset_seconds, 2),
         "subtitle_end_padding_seconds": round(settings.subtitle_end_padding_seconds, 2),
         "subtitle_timing_source": _subtitle_timing_source(audio_asset),
@@ -295,7 +402,21 @@ def _build_aligned_subtitle_timings(
     cta_start: float,
     cta_duration: float,
     settings: Settings,
-) -> list[SubtitleTiming]:
+    audio_asset: AudioAsset | None,
+    audio_duration: float,
+) -> tuple[list[SubtitleTiming], dict]:
+    if audio_asset and (audio_asset.tts_text or audio_asset.tts_chunks or audio_asset.tts_quality_metadata):
+        timings, diagnostics = build_tts_aligned_subtitle_timings(
+            draft=draft,
+            duration_seconds=audio_duration,
+            settings=settings,
+            tts_text=audio_asset.tts_text,
+            tts_chunks=audio_asset.tts_chunks,
+            tts_quality_metadata=audio_asset.tts_quality_metadata,
+        )
+        timings = _fit_subtitles_to_render_duration(timings, total_duration, settings)
+        return timings, diagnostics
+
     source_lines = [item.text for item in source_timings] or draft.subtitle_lines or _split_script_into_subtitles(
         draft.narration_script
     )
@@ -324,11 +445,12 @@ def _build_aligned_subtitle_timings(
     if timings:
         final = timings[-1]
         timings[-1] = final.model_copy(update={"end_second": round(max(final.end_second, total_duration), 2)})
-    return apply_subtitle_timing_offsets(
+    shifted = apply_subtitle_timing_offsets(
         timings,
         total_duration=total_duration,
         settings=settings,
     )
+    return shifted, _fallback_subtitle_diagnostics(shifted, settings)
 
 
 def apply_subtitle_timing_offsets(
@@ -371,6 +493,236 @@ def apply_subtitle_timing_offsets(
             update={"end_second": round(max(final.end_second, total_duration), 2)}
         )
     return shifted
+
+
+def _subtitle_chunk_timings(
+    *,
+    tts_chunks: list[str],
+    tts_text: str,
+    metadata: dict,
+    total_duration: float,
+) -> list[dict]:
+    raw_timings = list(metadata.get("tts_chunk_timings") or [])
+    if raw_timings:
+        return sorted(raw_timings, key=lambda item: float(item.get("start_second") or 0))
+
+    chunks = tts_chunks or ([tts_text] if tts_text else [])
+    chunks = [chunk for chunk in chunks if chunk.strip()]
+    if not chunks:
+        return []
+    weights = [max(1, len(_normalize_for_match(chunk))) for chunk in chunks]
+    total_weight = sum(weights)
+    cursor = 0.0
+    timings: list[dict] = []
+    for index, (chunk, weight) in enumerate(zip(chunks, weights, strict=False)):
+        duration = total_duration * (weight / total_weight) if total_weight else total_duration / len(chunks)
+        end = total_duration if index == len(chunks) - 1 else cursor + duration
+        timings.append(
+            {
+                "chunk_index": index,
+                "text": chunk,
+                "start_second": round(cursor, 3),
+                "end_second": round(end, 3),
+                "duration_seconds": round(max(0.0, end - cursor), 3),
+                "boundary_event_count": 0,
+                "is_cta": "subscribe" in _normalize_for_match(chunk) or "\u0938\u092c\u094d\u0938\u0915\u094d\u0930\u093e\u0907\u092c" in chunk,
+            }
+        )
+        cursor = end
+    return timings
+
+
+def _boundary_events_by_chunk(metadata: dict) -> dict[int, list[dict]]:
+    grouped: dict[int, list[dict]] = {}
+    for event in metadata.get("edge_boundary_events") or []:
+        try:
+            chunk_index = int(event.get("chunk_index") or 0)
+        except (TypeError, ValueError):
+            chunk_index = 0
+        if "start_second" not in event or "end_second" not in event:
+            continue
+        grouped.setdefault(chunk_index, []).append(event)
+    for events in grouped.values():
+        events.sort(key=lambda item: float(item.get("start_second") or 0))
+    return grouped
+
+
+def _assign_subtitle_lines_to_chunks(lines: list[str], chunk_timings: list[dict]) -> dict[int, list[int]]:
+    line_weights = [max(1, len(_normalize_for_match(line))) for line in lines]
+    chunk_weights = [max(1, len(_normalize_for_match(str(chunk.get("text") or "")))) for chunk in chunk_timings]
+    total_line_weight = sum(line_weights) or len(lines)
+    total_chunk_weight = sum(chunk_weights) or len(chunk_timings)
+
+    chunk_ranges: list[tuple[float, float]] = []
+    cursor = 0.0
+    for weight in chunk_weights:
+        start = cursor
+        cursor += weight / total_chunk_weight
+        chunk_ranges.append((start, cursor))
+
+    assignments: dict[int, list[int]] = {index: [] for index in range(len(chunk_timings))}
+    line_cursor = 0.0
+    for line_index, weight in enumerate(line_weights):
+        center = line_cursor + (weight / total_line_weight) / 2
+        chunk_index = 0
+        for index, (start, end) in enumerate(chunk_ranges):
+            if start <= center <= end or index == len(chunk_ranges) - 1:
+                chunk_index = index
+                break
+        assignments.setdefault(chunk_index, []).append(line_index)
+        line_cursor += weight / total_line_weight
+
+    empty_indexes = [index for index, values in assignments.items() if not values]
+    for index in empty_indexes:
+        assignments.pop(index, None)
+    if not assignments:
+        assignments[len(chunk_timings) - 1] = list(range(len(lines)))
+    return assignments
+
+
+def _chunk_speech_window(
+    chunk: dict,
+    events: list[dict],
+    settings: Settings,
+) -> tuple[float, float, bool]:
+    chunk_start = float(chunk.get("start_second") or 0.0)
+    chunk_end = float(chunk.get("end_second") or chunk_start)
+    if settings.subtitle_alignment_mode == "boundary_first" and events:
+        event_start = min(float(event.get("start_second") or chunk_start) for event in events)
+        event_end = max(float(event.get("end_second") or chunk_end) for event in events)
+        return max(chunk_start, event_start), min(max(chunk_end, event_end), event_end), True
+    return chunk_start, chunk_end, False
+
+
+def _allocate_subtitle_indexes_for_speech_window(
+    *,
+    lines: list[str],
+    line_indexes: list[int],
+    speech_start: float,
+    speech_end: float,
+    settings: Settings,
+) -> tuple[list[SubtitleTiming], list[float], int]:
+    selected_lines = [lines[index] for index in line_indexes]
+    weights = [max(1, len(_normalize_for_match(line))) for line in selected_lines]
+    total_weight = sum(weights) or len(selected_lines)
+    available_duration = max(
+        len(selected_lines) * settings.min_subtitle_duration_seconds,
+        speech_end - speech_start,
+    )
+    cursor = speech_start
+    timings: list[SubtitleTiming] = []
+    deltas: list[float] = []
+    invalid_count = 0
+    for offset, (line_index, line, weight) in enumerate(zip(line_indexes, selected_lines, weights, strict=False)):
+        expected_start = cursor
+        duration = max(settings.min_subtitle_duration_seconds, available_duration * (weight / total_weight))
+        raw_end = speech_start + available_duration if offset == len(selected_lines) - 1 else cursor + duration
+        start = max(expected_start, cursor) + settings.subtitle_global_offset_seconds
+        end = max(raw_end + settings.subtitle_global_offset_seconds + settings.subtitle_end_padding_seconds, start + settings.min_subtitle_duration_seconds)
+        delta = start - expected_start
+        if delta < -settings.subtitle_max_early_start_seconds or delta > settings.subtitle_max_late_start_seconds:
+            invalid_count += 1
+        timings.append(
+            SubtitleTiming(
+                index=line_index,
+                start_second=round(max(0.0, start), 2),
+                end_second=round(max(end, start + settings.min_subtitle_duration_seconds), 2),
+                text=line,
+            )
+        )
+        deltas.append(round(delta, 3))
+        cursor = raw_end
+    return timings, deltas, invalid_count
+
+
+def _renumber_subtitles(timings: list[SubtitleTiming], total_duration: float) -> list[SubtitleTiming]:
+    renumbered: list[SubtitleTiming] = []
+    previous_end = 0.0
+    for index, timing in enumerate(timings):
+        start = max(0.0, timing.start_second)
+        end = min(total_duration, max(timing.end_second, start + 0.5))
+        if start < previous_end - 0.01:
+            start = max(0.0, previous_end)
+            end = max(end, start + 0.5)
+        renumbered.append(
+            timing.model_copy(
+                update={
+                    "index": index,
+                    "start_second": round(start, 2),
+                    "end_second": round(min(total_duration, end), 2),
+                }
+            )
+        )
+        previous_end = renumbered[-1].end_second
+    return renumbered
+
+
+def _fit_subtitles_to_render_duration(
+    timings: list[SubtitleTiming],
+    total_duration: float,
+    settings: Settings,
+) -> list[SubtitleTiming]:
+    if not timings:
+        return []
+    fitted = []
+    for timing in timings:
+        start = min(max(0.0, timing.start_second), max(0.0, total_duration - settings.min_subtitle_duration_seconds))
+        end = min(total_duration, max(timing.end_second, start + settings.min_subtitle_duration_seconds))
+        fitted.append(timing.model_copy(update={"start_second": round(start, 2), "end_second": round(end, 2)}))
+    final = fitted[-1]
+    fitted[-1] = final.model_copy(update={"end_second": round(max(final.end_second, min(total_duration, final.start_second + settings.min_subtitle_duration_seconds)), 2)})
+    return _renumber_subtitles(fitted, total_duration)
+
+
+def _subtitle_alignment_diagnostics(
+    *,
+    settings: Settings,
+    mode_used: str,
+    boundary_aligned: int,
+    fallback_aligned: int,
+    deltas: list[float],
+    invalid_count: int,
+) -> dict:
+    earliest = min(deltas) if deltas else 0.0
+    latest = max(deltas) if deltas else 0.0
+    warnings: list[str] = []
+    if earliest < -settings.subtitle_max_early_start_seconds:
+        warnings.append("Subtitle timing starts too early relative to its estimated speech segment.")
+    if latest > settings.subtitle_max_late_start_seconds:
+        warnings.append("Subtitle timing starts too late relative to its estimated speech segment.")
+    if invalid_count:
+        warnings.append(f"{invalid_count} subtitle line(s) have invalid timing deltas.")
+    return {
+        "mode_used": mode_used,
+        "boundary_aligned_lines": boundary_aligned,
+        "fallback_aligned_lines": fallback_aligned,
+        "earliest_start_delta_seconds": round(earliest, 3),
+        "latest_start_delta_seconds": round(latest, 3),
+        "invalid_line_count": invalid_count,
+        "warnings": warnings,
+    }
+
+
+def _fallback_subtitle_diagnostics(timings: list[SubtitleTiming], settings: Settings) -> dict:
+    return _subtitle_alignment_diagnostics(
+        settings=settings,
+        mode_used="scene_duration_fallback",
+        boundary_aligned=0,
+        fallback_aligned=len(timings),
+        deltas=[settings.subtitle_global_offset_seconds for _ in timings],
+        invalid_count=0,
+    )
+
+
+def _empty_subtitle_alignment_diagnostics(settings: Settings) -> dict:
+    return _subtitle_alignment_diagnostics(
+        settings=settings,
+        mode_used="empty",
+        boundary_aligned=0,
+        fallback_aligned=0,
+        deltas=[],
+        invalid_count=0,
+    )
 
 
 def _allocate_subtitle_lines(
@@ -444,6 +796,7 @@ def _timing_warnings(
     audio_duration: float,
     final_duration: float,
     settings: Settings,
+    subtitle_diagnostics: dict | None = None,
 ) -> list[str]:
     warnings: list[str] = []
     if cta_duration < settings.cta_min_duration_seconds:
@@ -454,6 +807,16 @@ def _timing_warnings(
         warnings.append("One or more subtitle lines are below the configured minimum duration.")
     if audio_duration > final_duration:
         warnings.append("Audio duration is longer than final video duration.")
+    diagnostics = subtitle_diagnostics or {}
+    warnings.extend(str(item) for item in diagnostics.get("warnings", []))
+    earliest = diagnostics.get("earliest_start_delta_seconds")
+    latest = diagnostics.get("latest_start_delta_seconds")
+    if earliest is not None and float(earliest) < -settings.subtitle_max_early_start_seconds:
+        warnings.append("Subtitle alignment starts before the related audio beyond the allowed threshold.")
+    if latest is not None and float(latest) > settings.subtitle_max_late_start_seconds:
+        warnings.append("Subtitle alignment starts after the related audio beyond the allowed threshold.")
+    if int(diagnostics.get("invalid_line_count") or 0) > 0:
+        warnings.append("Subtitle/audio alignment has invalid line timing.")
     return warnings
 
 

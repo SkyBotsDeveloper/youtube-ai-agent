@@ -9,10 +9,11 @@ from raatverse_agent.script_generation.models import ScriptDraft
 DEVANAGARI_RE = re.compile(r"[\u0900-\u097F]")
 SUBSCRIBE_DEVANAGARI = "\u0938\u092c\u094d\u0938\u0915\u094d\u0930\u093e\u0907\u092c"
 SUBSCRIBE_KAREN_DEVANAGARI = f"{SUBSCRIBE_DEVANAGARI} \u0915\u0930\u0947\u0902"
+SUBSCRIBE_ZAROOR_KAREN_DEVANAGARI = f"{SUBSCRIBE_DEVANAGARI} \u091c\u093c\u0930\u0942\u0930 \u0915\u0930\u0947\u0902"
 DEFAULT_CTA_TTS_TEXT = (
     "\u0905\u0917\u0930 \u0915\u0939\u093e\u0928\u0940 \u092a\u0938\u0902\u0926 "
     "\u0906\u0908 \u0939\u094b, \u0924\u094b \u0930\u093e\u0924\u0935\u0930\u094d\u0938 "
-    f"\u091a\u0948\u0928\u0932 \u0915\u094b {SUBSCRIBE_KAREN_DEVANAGARI}\u0964 "
+    f"\u091a\u0948\u0928\u0932 \u0915\u094b {SUBSCRIBE_ZAROOR_KAREN_DEVANAGARI}\u0964 "
     "\u0915\u0932 \u0930\u093e\u0924 \u090f\u0915 \u0914\u0930 \u0928\u0908 "
     "\u0915\u0939\u093e\u0928\u0940 \u092e\u093f\u0932\u0947\u0917\u0940\u0964"
 )
@@ -254,7 +255,16 @@ def build_cta_tts_text(settings: Settings) -> str:
     override = settings.cta_tts_override.strip()
     if override:
         return override
-    return DEFAULT_CTA_TTS_TEXT
+    text = DEFAULT_CTA_TTS_TEXT
+    if settings.tts_cta_extra_pause_ms > 0:
+        text = text.replace(
+            "\u0924\u094b \u0930\u093e\u0924\u0935\u0930\u094d\u0938",
+            "\u0924\u094b, \u0930\u093e\u0924\u0935\u0930\u094d\u0938",
+        ).replace(
+            f"\u0915\u094b {SUBSCRIBE_DEVANAGARI}",
+            f"\u0915\u094b, {SUBSCRIBE_DEVANAGARI}",
+        )
+    return text
 
 
 def apply_cta_tts_normalization(
@@ -277,13 +287,10 @@ def apply_cta_tts_normalization(
         return f"{without_display_cta.rstrip()} {cta_tts_text}".strip(), cta_tts_text, mode
 
     normalized_source = _normalize_for_match(source)
-    if (
-        ("raatverse ko subscribe karo" in normalized_source or "subscribe karo" in normalized_source)
-        and "kal raat" in normalized_source
-    ):
-        return f"{source.rstrip()} {cta_tts_text}".strip(), cta_tts_text, mode
+    if _looks_like_cta_tail(normalized_source, source):
+        return f"{_remove_common_display_cta(source, display_cta).rstrip()} {cta_tts_text}".strip(), cta_tts_text, mode
 
-    if SUBSCRIBE_DEVANAGARI in source and SUBSCRIBE_KAREN_DEVANAGARI not in source:
+    if SUBSCRIBE_DEVANAGARI in source and SUBSCRIBE_ZAROOR_KAREN_DEVANAGARI not in source:
         return _ensure_devanagari_subscribe_karen(source), cta_tts_text, mode
 
     return source, "", "none"
@@ -304,6 +311,8 @@ def _remove_common_display_cta(source: str, display_cta: str) -> str:
     patterns = [
         r"agar\s+kahani\s+pasand\s+aayi\s+ho,?\s*to\s+raatverse\s+ko\s+subscribe\s+karo\.?\s*kal\s+raat\s+ek\s+aur\s+nayi\s+kahani\s+milegi\.?",
         r"raatverse\s+ko\s+subscribe\s+karo\.?\s*kal\s+raat\s+ek\s+aur\s+nayi\s+kahani\s+milegi\.?",
+        r"\u0905\u0917\u0930\s+\u0915\u0939\u093e\u0928\u0940\s+\u092a\u0938\u0902\u0926\s+\u0906\u0908\s+\u0939\u094b[,،]?\s*\u0924\u094b\s+\u0930\u093e\u0924\u0935\u0930\u094d\u0938\s+(?:\u091a\u0948\u0928\u0932\s+)?\u0915\u094b\s+\u0938\u092c\u094d\u0938\u0915\u094d\u0930\u093e\u0907\u092c(?:\s+\u091c\u093c?\u0930\u0942\u0930)?\s+\u0915\u0930(?:\u0947\u0902|\u094b)\u0964?\s*\u0915\u0932\s+\u0930\u093e\u0924\s+\u090f\u0915\s+\u0914\u0930\s+\u0928\u0908\s+\u0915\u0939\u093e\u0928\u0940\s+\u092e\u093f\u0932\u0947\u0917\u0940\u0964?",
+        r"\u0930\u093e\u0924\u0935\u0930\u094d\u0938\s+(?:\u091a\u0948\u0928\u0932\s+)?\u0915\u094b\s+\u0938\u092c\u094d\u0938\u0915\u094d\u0930\u093e\u0907\u092c(?:\s+\u091c\u093c?\u0930\u0942\u0930)?\s+\u0915\u0930(?:\u0947\u0902|\u094b)\u0964?\s*\u0915\u0932\s+\u0930\u093e\u0924\s+\u090f\u0915\s+\u0914\u0930\s+\u0928\u0908\s+\u0915\u0939\u093e\u0928\u0940\s+\u092e\u093f\u0932\u0947\u0917\u0940\u0964?",
     ]
     for pattern in patterns:
         cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
@@ -311,8 +320,20 @@ def _remove_common_display_cta(source: str, display_cta: str) -> str:
 
 
 def _ensure_devanagari_subscribe_karen(source: str) -> str:
-    pattern = rf"{re.escape(SUBSCRIBE_DEVANAGARI)}(?:\s+[^\s।.,!?]+)?"
-    return re.sub(pattern, SUBSCRIBE_KAREN_DEVANAGARI, source, count=1)
+    cleaned = _remove_common_display_cta(source, "")
+    if cleaned != source:
+        return f"{cleaned.rstrip()} {DEFAULT_CTA_TTS_TEXT}".strip()
+    pattern = rf"{re.escape(SUBSCRIBE_DEVANAGARI)}(?:\s+\u091c\u093c?\u0930\u0942\u0930)?(?:\s+\u0915\u0930(?:\u0947\u0902|\u094b))?"
+    return re.sub(pattern, SUBSCRIBE_ZAROOR_KAREN_DEVANAGARI, source, count=1)
+
+
+def _looks_like_cta_tail(normalized_source: str, original_source: str) -> bool:
+    if (
+        ("raatverse ko subscribe karo" in normalized_source or "subscribe karo" in normalized_source)
+        and "kal raat" in normalized_source
+    ):
+        return True
+    return SUBSCRIBE_DEVANAGARI in original_source and "\u0915\u0932 \u0930\u093e\u0924" in original_source
 
 
 def _normalize_for_match(value: str) -> str:
