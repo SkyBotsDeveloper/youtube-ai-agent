@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from raatverse_agent.assets.models import AssetPlan, AudioAsset
 from raatverse_agent.assets.quality import analyze_asset_plan
+from raatverse_agent.assets.timing import align_asset_plan_timing_to_audio
 from raatverse_agent.config import Settings
 from raatverse_agent.db.repositories import RaatVerseRepository
 from raatverse_agent.rendering.errors import RenderProviderError, RenderWorkflowError
@@ -63,7 +64,13 @@ class RenderWorkflowService:
             warnings.append("Asset plan has no scene timings; renderer will use one fallback scene.")
         if not asset_plan.subtitle_timings:
             warnings.append("Asset plan has no subtitle timings; render will have no captions.")
-        quality_warnings = self._quality_warnings(asset_plan, audio_asset, draft)
+        timed_plan, timing_report = align_asset_plan_timing_to_audio(
+            draft=draft,
+            asset_plan=asset_plan,
+            audio_asset=audio_asset,
+            settings=self.settings,
+        )
+        quality_warnings = self._quality_warnings(timed_plan, audio_asset, draft, timing_report)
         warnings.extend(quality_warnings)
         if strict_quality and quality_warnings:
             issues.extend(f"Strict quality check failed: {warning}" for warning in quality_warnings)
@@ -85,6 +92,12 @@ class RenderWorkflowService:
         if loaded is None:
             raise RenderWorkflowError(f"Asset plan {asset_plan_id} was not found.")
         draft, asset_plan, audio_asset = loaded
+        timed_plan, timing_report = align_asset_plan_timing_to_audio(
+            draft=draft,
+            asset_plan=asset_plan,
+            audio_asset=audio_asset,
+            settings=self.settings,
+        )
         provider = "mock" if isinstance(self.renderer, MockVideoRenderer) else "ffmpeg"
         render = VideoRender(
             asset_plan_id=asset_plan.id or asset_plan_id,
@@ -93,6 +106,7 @@ class RenderWorkflowService:
             resolution=f"{self.settings.render_width}x{self.settings.render_height}",
             fps=self.settings.render_fps,
             renderer_provider=provider,
+            timing_report=timing_report,
         )
         record = self.repository.create_video_render(render)
         saved = self.repository.get_video_render(record.id)
@@ -107,7 +121,7 @@ class RenderWorkflowService:
             rendered = self.renderer.render(
                 render=running,
                 draft=draft,
-                asset_plan=asset_plan,
+                asset_plan=timed_plan,
                 audio_asset=audio_asset,
             )
         except RenderProviderError as exc:
@@ -127,6 +141,7 @@ class RenderWorkflowService:
             preview_path=rendered.preview_path,
             duration_seconds=rendered.duration_seconds,
             ffmpeg_command_summary=rendered.ffmpeg_command_summary,
+            timing_report=rendered.timing_report or timing_report,
             error_message=rendered.error_message,
         )
         if ready is None:
@@ -152,9 +167,10 @@ class RenderWorkflowService:
         asset_plan: AssetPlan,
         audio_asset: AudioAsset | None,
         draft: ScriptDraft,
+        timing_report: dict | None = None,
     ) -> list[str]:
         warnings: list[str] = []
-        report = analyze_asset_plan(asset_plan, self.settings)
+        report = analyze_asset_plan(asset_plan, self.settings, draft)
         if report.repeated_urls:
             warnings.append(
                 f"Repeated media URLs detected across beats: {len(report.repeated_urls)} repeated source(s)."
@@ -164,12 +180,29 @@ class RenderWorkflowService:
                 f"Only {report.unique_media_ratio:.0%} of beats have unique media; target is at least 70%."
             )
         if audio_asset and audio_asset.duration_seconds:
-            max_duration = draft.estimated_duration_seconds * 1.15
-            if audio_asset.duration_seconds > max_duration:
+            video_duration = float((timing_report or {}).get("final_video_duration_seconds") or 0)
+            if video_duration and audio_asset.duration_seconds > video_duration:
+                warnings.append("Audio duration is longer than final video duration.")
+            elif audio_asset.duration_seconds > draft.estimated_duration_seconds * 1.15:
                 warnings.append(
                     "Audio duration exceeds estimated script duration by more than 15%; "
-                    "subtitles/scene timings may drift."
+                    "timings were scaled to the audio duration."
                 )
+        if timing_report:
+            warnings.extend(str(item) for item in timing_report.get("warnings", []))
+            if float(timing_report.get("cta_duration_seconds") or 0) < self.settings.cta_min_duration_seconds:
+                warnings.append("CTA duration is below the configured minimum.")
+            if float(timing_report.get("shortest_scene_beat_duration_seconds") or 0) < self.settings.min_scene_beat_duration_seconds:
+                warnings.append("A scene beat is below the configured minimum duration.")
+            if float(timing_report.get("shortest_subtitle_duration_seconds") or 0) < self.settings.min_subtitle_duration_seconds:
+                warnings.append("A subtitle line is below the configured minimum duration.")
+        low_relevance = [
+            item
+            for item in report.beat_alignments
+            if item.visual_relevance_score < self.settings.visual_relevance_min_score
+        ]
+        if low_relevance:
+            warnings.append(f"{len(low_relevance)} beat(s) have low visual relevance scores.")
         return warnings
 
 

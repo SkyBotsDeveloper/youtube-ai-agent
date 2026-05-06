@@ -134,6 +134,7 @@ class VideoRenderRecord(Base):
     fps: Mapped[int] = mapped_column(Integer, default=30)
     renderer_provider: Mapped[str] = mapped_column(String(80), index=True)
     ffmpeg_command_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    timing_report_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(

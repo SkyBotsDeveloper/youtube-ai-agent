@@ -101,6 +101,7 @@ class AssetPreparationService:
                 media_assets,
                 beat_count=max(1, len(draft.scene_beats)),
                 settings=self.settings,
+                draft=draft,
             )
             download_enabled = (
                 request.download_enabled

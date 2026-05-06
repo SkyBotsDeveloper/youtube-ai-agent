@@ -59,6 +59,16 @@ def format_asset_quality_report(report: AssetQualityReport) -> str:
     recommendations = "\n".join(
         f"  - {item}" for item in report.recommendations
     ) or "  - None"
+    alignment_lines = []
+    for item in report.beat_alignments:
+        warnings = "; ".join(item.warnings) if item.warnings else "ok"
+        alignment_lines.append(
+            f"  - beat {item.beat_index}: score={item.visual_relevance_score:.2f} "
+            f"duration={item.duration_allocated:.2f}s cta={item.is_cta_outro} | "
+            f"{item.narration_excerpt or 'No narration'} | "
+            f"query={item.query_used or 'None'} | media={item.selected_media_url or 'None'} | {warnings}"
+        )
+    alignments = "\n".join(alignment_lines) or "  - None"
     return (
         "RaatVerse asset quality report\n"
         f"Asset plan ID: {report.asset_plan_id}\n"
@@ -73,6 +83,8 @@ def format_asset_quality_report(report: AssetQualityReport) -> str:
         f"{providers}\n"
         "Repeated URLs:\n"
         f"{repeated}\n"
+        "Beat alignment:\n"
+        f"{alignments}\n"
         "Recommendations:\n"
         f"{recommendations}"
     )

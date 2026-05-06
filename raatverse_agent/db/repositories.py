@@ -690,6 +690,7 @@ class RaatVerseRepository:
             fps=render.fps,
             renderer_provider=render.renderer_provider,
             ffmpeg_command_summary=render.ffmpeg_command_summary,
+            timing_report_json=dict(render.timing_report or {}),
             error_message=render.error_message,
         )
         self.session.add(record)
@@ -711,6 +712,7 @@ class RaatVerseRepository:
             fps=record.fps,
             renderer_provider=record.renderer_provider,
             ffmpeg_command_summary=record.ffmpeg_command_summary,
+            timing_report=dict(record.timing_report_json or {}),
             error_message=record.error_message,
             created_at=record.created_at,
             updated_at=record.updated_at,
@@ -725,6 +727,7 @@ class RaatVerseRepository:
         preview_path: str | None = None,
         duration_seconds: float | None = None,
         ffmpeg_command_summary: str | None = None,
+        timing_report: dict | None = None,
         error_message: str | None = None,
     ) -> VideoRender | None:
         record = self.session.get(VideoRenderRecord, render_id)
@@ -739,6 +742,8 @@ class RaatVerseRepository:
             record.duration_seconds = duration_seconds
         if ffmpeg_command_summary is not None:
             record.ffmpeg_command_summary = ffmpeg_command_summary
+        if timing_report is not None:
+            record.timing_report_json = dict(timing_report)
         record.error_message = error_message
         record.updated_at = datetime.now(timezone.utc)
         self.session.commit()

@@ -34,6 +34,7 @@ class VideoRender(BaseModel):
     fps: int = 30
     renderer_provider: str
     ffmpeg_command_summary: str | None = None
+    timing_report: dict = Field(default_factory=dict)
     error_message: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

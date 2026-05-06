@@ -93,6 +93,9 @@ def _run_sqlite_migrations(engine: Engine) -> None:
             "tts_chunks_json": "JSON",
             "tts_quality_json": "JSON",
         },
+        "video_renders": {
+            "timing_report_json": "JSON",
+        },
         "analytics_snapshots": {
             "youtube_upload_id": "INTEGER",
             "youtube_video_id": "VARCHAR(128)",

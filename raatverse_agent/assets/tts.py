@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from raatverse_agent.assets.errors import TTSProviderError
 from raatverse_agent.assets.models import AudioAsset
+from raatverse_agent.assets.audio_probe import probe_audio_duration_seconds
 from raatverse_agent.assets.timing import (
     build_scene_timing_suggestions,
     build_subtitle_timings,
@@ -76,8 +77,8 @@ class MockTTSProvider(TTSProvider):
             tts_text=prepared.tts_text,
             tts_chunks=prepared.chunks,
             tts_quality_metadata=quality,
-            subtitle_timings=build_subtitle_timings(draft, duration),
-            scene_timings=build_scene_timing_suggestions(draft, duration),
+            subtitle_timings=build_subtitle_timings(draft, duration, self.settings),
+            scene_timings=build_scene_timing_suggestions(draft, duration, self.settings),
             status="asset_ready",
         )
 
@@ -96,8 +97,8 @@ class EdgeFreeTTSProvider(TTSProvider):
             audio_duration_seconds=duration,
             estimated_script_duration_seconds=draft.estimated_duration_seconds,
         )
-        subtitle_timings = build_subtitle_timings(draft, duration)
-        scene_timings = build_scene_timing_suggestions(draft, duration)
+        subtitle_timings = build_subtitle_timings(draft, duration, self.settings)
+        scene_timings = build_scene_timing_suggestions(draft, duration, self.settings)
         output_dir = Path(self.settings.tts_cache_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         file_path = output_dir / f"script-{draft.id or draft.draft_uid}-{uuid4().hex[:8]}.{self.settings.tts_output_format}"
@@ -106,13 +107,22 @@ class EdgeFreeTTSProvider(TTSProvider):
         for attempt in range(self.settings.tts_max_retries + 1):
             try:
                 asyncio.run(self._save_with_edge_tts(prepared.chunks, file_path))
+                actual_duration = probe_audio_duration_seconds(file_path, self.settings)
+                final_duration = actual_duration or duration
+                quality = build_tts_quality_metadata(
+                    prepared,
+                    audio_duration_seconds=final_duration,
+                    estimated_script_duration_seconds=draft.estimated_duration_seconds,
+                )
+                subtitle_timings = build_subtitle_timings(draft, final_duration, self.settings)
+                scene_timings = build_scene_timing_suggestions(draft, final_duration, self.settings)
                 return AudioAsset(
                     script_draft_id=draft.id or 0,
                     provider="edge-tts",
                     voice=resolve_tts_voice(self.settings),
                     language=self.settings.tts_language,
                     file_path=str(file_path),
-                    duration_seconds=duration,
+                    duration_seconds=final_duration,
                     tts_text=prepared.tts_text,
                     tts_chunks=prepared.chunks,
                     tts_quality_metadata=quality,

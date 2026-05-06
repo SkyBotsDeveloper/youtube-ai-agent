@@ -18,9 +18,18 @@ def beat_stock_queries(draft: ScriptDraft, beat) -> list[str]:
     mood = (getattr(beat, "mood", None) or "").strip()
     motion = (getattr(beat, "camera_motion", None) or "").strip()
     visual = (beat.visual_suggestion or "").strip()
+    narration = " ".join(
+        part
+        for part in [
+            getattr(beat, "narration", "") or "",
+            getattr(beat, "narration_segment", "") or "",
+        ]
+        if part
+    ).strip()
     base_parts = [
         location,
         mood,
+        narration[:90],
         visual,
         draft.category,
         "dark cinematic vertical",
@@ -30,6 +39,8 @@ def beat_stock_queries(draft: ScriptDraft, beat) -> list[str]:
         primary,
         fallback,
         f"{location} {mood} night vertical suspense".strip(),
+        f"{location} {visual[:50]} abandoned house close up dark".strip(),
+        f"{narration[:70]} creepy interior shadows night vertical".strip(),
         f"{draft.category} {mood} {motion} horror short vertical".strip(),
         f"{visual[:80]} vertical cinematic stock video".strip(),
     ]

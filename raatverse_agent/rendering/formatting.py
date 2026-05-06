@@ -4,6 +4,8 @@ from raatverse_agent.rendering.models import RenderValidationResult, VideoRender
 
 
 def format_video_render(render: VideoRender) -> str:
+    timing = render.timing_report or {}
+    timing_warnings = "\n".join(f"  - {item}" for item in timing.get("warnings", [])) or "  - None"
     return (
         "RaatVerse render completed\n"
         f"Render ID: {render.id}\n"
@@ -16,6 +18,15 @@ def format_video_render(render: VideoRender) -> str:
         f"Duration: {render.duration_seconds or 0:.2f}s\n"
         f"Resolution: {render.resolution}\n"
         f"FPS: {render.fps}\n"
+        "Timing report:\n"
+        f"  - Actual audio duration: {float(timing.get('actual_audio_duration_seconds') or 0):.2f}s\n"
+        f"  - Final video duration: {float(timing.get('final_video_duration_seconds') or render.duration_seconds or 0):.2f}s\n"
+        f"  - CTA duration: {float(timing.get('cta_duration_seconds') or 0):.2f}s\n"
+        f"  - Shortest scene beat: {float(timing.get('shortest_scene_beat_duration_seconds') or 0):.2f}s\n"
+        f"  - Subtitle count: {int(timing.get('subtitle_count') or 0)}\n"
+        f"  - Timing scaled to audio: {bool(timing.get('timing_scaled_to_audio'))}\n"
+        "Timing warnings:\n"
+        f"{timing_warnings}\n"
         f"Command summary: {render.ffmpeg_command_summary or 'None'}\n"
         f"Error: {render.error_message or 'None'}"
     )

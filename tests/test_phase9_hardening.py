@@ -69,7 +69,7 @@ def test_db_migration_cli_helpers(tmp_path):
     history = subprocess.run([*base, "db", "history"], check=True, env=env, capture_output=True, text=True)
 
     assert "upgraded to head" in upgraded.stdout.lower()
-    assert "0003_quality_patch_tts_media" in current.stdout
+    assert "0004_render_timing_report" in current.stdout
     assert "Initial RaatVerse schema" in history.stdout
 
 

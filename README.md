@@ -376,6 +376,10 @@ PEXELS_API_KEY=replace-with-free-pexels-key
 STOCK_MEDIA_AVOID_DUPLICATES=true
 STOCK_MEDIA_PREFER_VERTICAL=true
 STOCK_MEDIA_MAX_REUSE_PER_URL=1
+VISUAL_RELEVANCE_MIN_SCORE=0.55
+VISUAL_RELEVANCE_PREFER_LOCATION=true
+VISUAL_RELEVANCE_PREFER_ACTION=true
+VISUAL_RELEVANCE_PREFER_MOOD=true
 ```
 
 or:
@@ -416,3 +420,15 @@ python -m raatverse_agent render create <asset_plan_id>
 ```
 
 If the asset report shows repeated URLs or weak beats, regenerate assets or improve scene search queries before uploading. Rendering remains local; YouTube upload still requires the existing private, human-approved workflow.
+
+Recommended render timing settings:
+
+```env
+CTA_MIN_DURATION_SECONDS=7
+CTA_END_PADDING_SECONDS=1.5
+CTA_VISUAL_HOLD_SECONDS=2
+MIN_SCENE_BEAT_DURATION_SECONDS=2.5
+MIN_SUBTITLE_DURATION_SECONDS=1.2
+```
+
+The render workflow reserves the final CTA/outro duration, scales scene/subtitle timings to actual TTS audio duration when available, and prints a timing report after render creation.

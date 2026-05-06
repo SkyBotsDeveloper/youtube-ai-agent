@@ -60,6 +60,8 @@ Before edge-tts receives text, the app:
 
 The generated `audio_assets` record stores the final `tts_text`, chunk list, and quality metadata. CLI output reports input characters, chunk count, duration, and warnings.
 
+When `ffprobe` is available through the local FFmpeg install, the free TTS provider probes the generated audio file and stores the actual duration. Render timing then uses that duration as the source of truth so subtitles and scene beats are scaled to the spoken audio instead of only the script estimate.
+
 ## Stored Audio Metadata
 
 The `audio_assets` table stores:

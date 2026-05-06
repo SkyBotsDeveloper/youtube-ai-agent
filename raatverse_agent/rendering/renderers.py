@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Protocol
 
 from raatverse_agent.assets.models import AssetPlan, AudioAsset, MediaAssetCandidate, SceneTimingSuggestion
+from raatverse_agent.assets.timing import is_cta_scene
 from raatverse_agent.config import Settings
 from raatverse_agent.rendering.errors import RenderProviderError
 from raatverse_agent.rendering.models import VideoRender
@@ -143,7 +144,7 @@ class FFmpegVideoRenderer:
         media_inputs: list[MediaAssetCandidate | None] = []
         for scene in scenes:
             duration = max(0.8, scene.end_second - scene.start_second)
-            candidate = _select_local_media(asset_plan.media_assets, scene.index)
+            candidate = None if is_cta_scene(scene, draft, self.settings) else _select_local_media(asset_plan.media_assets, scene.index)
             media_inputs.append(candidate)
             if candidate and candidate.local_file_path:
                 path = Path(candidate.local_file_path)
@@ -191,12 +192,17 @@ class FFmpegVideoRenderer:
             duration = max(0.8, scene.end_second - scene.start_second)
             label = f"v{index}"
             video_labels.append(f"[{label}]")
-            filter_parts.append(
-                f"[{index}:v]"
+            scene_filters = (
                 f"scale={self.settings.render_width}:{self.settings.render_height}:force_original_aspect_ratio=increase,"
                 f"crop={self.settings.render_width}:{self.settings.render_height},"
                 f"setsar=1,fps={self.settings.render_fps},format=yuv420p,"
                 f"trim=duration={duration:.3f},setpts=PTS-STARTPTS"
+            )
+            if is_cta_scene(scene, draft, self.settings):
+                scene_filters = f"{scene_filters},{outro_screen_drawtext(self.settings)}"
+            filter_parts.append(
+                f"[{index}:v]"
+                f"{scene_filters}"
                 f"[{label}]"
             )
         joined_labels = "".join(video_labels)
@@ -229,7 +235,6 @@ class FFmpegVideoRenderer:
                 str(self.settings.render_crf),
                 "-c:a",
                 self.settings.render_audio_codec,
-                "-shortest",
                 "-movflags",
                 "+faststart",
                 str(output_path),
@@ -281,6 +286,38 @@ def watermark_drawtext(settings: Settings) -> str:
         f"text='{text}':fontcolor=white@0.72:fontsize={font_size}:"
         "box=1:boxcolor=black@0.28:boxborderw=14:"
         f"{xy}:shadowcolor=black@0.65:shadowx=2:shadowy=2"
+    )
+
+
+def outro_screen_drawtext(settings: Settings) -> str:
+    brand_size = max(56, round(settings.render_width * 0.07))
+    cta_size = max(42, round(settings.render_width * 0.046))
+    line1 = _escape_drawtext("Agar kahani pasand aayi ho, to RaatVerse ko subscribe karo.")
+    line2 = _escape_drawtext("Kal raat ek aur nayi kahani milegi.")
+    brand = _escape_drawtext(settings.watermark_text or "RaatVerse")
+    return ",".join(
+        [
+            "drawtext="
+            f"text='{brand}':fontcolor=white:fontsize={brand_size}:"
+            "x=(w-tw)/2:y=h*0.34:shadowcolor=black@0.75:shadowx=3:shadowy=3",
+            "drawtext="
+            f"text='{line1}':fontcolor=white:fontsize={cta_size}:"
+            "box=1:boxcolor=black@0.38:boxborderw=18:"
+            "x=(w-tw)/2:y=h*0.49:shadowcolor=black@0.85:shadowx=2:shadowy=2",
+            "drawtext="
+            f"text='{line2}':fontcolor=white:fontsize={cta_size}:"
+            "box=1:boxcolor=black@0.38:boxborderw=18:"
+            "x=(w-tw)/2:y=h*0.57:shadowcolor=black@0.85:shadowx=2:shadowy=2",
+        ]
+    )
+
+
+def _escape_drawtext(value: str) -> str:
+    return (
+        value.replace("\\", "\\\\")
+        .replace(":", r"\:")
+        .replace("'", r"\'")
+        .replace(",", r"\,")
     )
 
 

@@ -726,7 +726,8 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 print(format_asset_plan(plan))
                 print()
-                print(format_asset_quality_report(analyze_asset_plan(plan, settings)))
+                draft = repository.get_script_draft(plan.script_draft_id)
+                print(format_asset_quality_report(analyze_asset_plan(plan, settings, draft)))
                 return 0 if plan.status == "asset_ready" else 2
 
             if args.assets_command == "list":
@@ -754,7 +755,8 @@ def main(argv: list[str] | None = None) -> int:
                 if plan is None:
                     print(f"Asset plan {args.id} was not found.", file=sys.stderr)
                     return 1
-                print(format_asset_quality_report(analyze_asset_plan(plan, settings)))
+                draft = repository.get_script_draft(plan.script_draft_id)
+                print(format_asset_quality_report(analyze_asset_plan(plan, settings, draft)))
                 return 0
 
     if args.command == "render":

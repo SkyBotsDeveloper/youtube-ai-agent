@@ -7,7 +7,7 @@ import pytest
 from raatverse_agent.assets.errors import AssetWorkflowError, StockMediaProviderError
 from raatverse_agent.assets.media import PexelsStockMediaProvider, PixabayStockMediaProvider
 from raatverse_agent.assets.models import AssetPlan, AssetPreparationRequest, MediaAssetCandidate, TTSGenerationRequest
-from raatverse_agent.assets.quality import analyze_asset_plan, select_diverse_media_candidates
+from raatverse_agent.assets.quality import analyze_asset_plan, score_visual_relevance, select_diverse_media_candidates
 from raatverse_agent.assets.service import (
     create_asset_preparation_service,
     create_tts_asset_service,
@@ -225,6 +225,53 @@ def test_asset_quality_report_flags_repeated_and_weak_media(tmp_path):
     assert report.repeated_urls == ["https://stock.example/reused.mp4"]
     assert report.vertical_media_count == 0
     assert report.weak_beats == [0, 1]
+
+
+def test_visual_relevance_scoring_uses_scene_metadata(tmp_path):
+    settings = _settings(tmp_path)
+    draft_id = _create_draft(settings, approved=True)
+
+    with session_scope(settings.database_url) as session:
+        draft = RaatVerseRepository(session).get_script_draft(draft_id)
+    beat = draft.scene_beats[1]
+    strong = MediaAssetCandidate(
+        provider="pexels",
+        query="dark narrow corridor wet floor footprints night vertical suspense",
+        media_type="video",
+        source_url="https://stock.example/corridor.mp4",
+        width=1080,
+        height=1920,
+        beat_index=1,
+        score=1.0,
+    )
+    weak = MediaAssetCandidate(
+        provider="pexels",
+        query="bright beach sunset happy travel",
+        media_type="video",
+        source_url="https://stock.example/beach.mp4",
+        width=1920,
+        height=1080,
+        beat_index=1,
+        score=1.0,
+    )
+
+    assert score_visual_relevance(strong, settings, beat) > score_visual_relevance(weak, settings, beat)
+
+
+def test_asset_alignment_report_includes_per_beat_details(tmp_path):
+    settings = _settings(tmp_path)
+    draft_id = _create_draft(settings, approved=True)
+
+    with session_scope(settings.database_url) as session:
+        repository = RaatVerseRepository(session)
+        draft = repository.get_script_draft(draft_id)
+        service = create_asset_preparation_service(settings=settings, repository=repository, mock=True)
+        plan = service.prepare_for_script(draft_id, AssetPreparationRequest(mock=True))
+        report = analyze_asset_plan(plan, settings, draft)
+
+    assert report.beat_alignments
+    assert report.beat_alignments[-1].is_cta_outro is True
+    assert report.beat_alignments[-1].duration_allocated >= settings.cta_min_duration_seconds
 
 
 def test_pexels_and_pixabay_missing_keys_fail_gracefully(tmp_path):

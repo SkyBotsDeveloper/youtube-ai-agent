@@ -83,6 +83,10 @@ class Settings(BaseSettings):
     stock_media_min_unique_per_plan: int = Field(default=6, ge=1)
     stock_media_prefer_vertical: bool = True
     stock_media_max_reuse_per_url: int = Field(default=1, ge=1)
+    visual_relevance_min_score: float = Field(default=0.55, ge=0.0, le=1.0)
+    visual_relevance_prefer_location: bool = True
+    visual_relevance_prefer_action: bool = True
+    visual_relevance_prefer_mood: bool = True
 
     ffmpeg_binary: str = "ffmpeg"
     output_dir: str = "./outputs"
@@ -100,6 +104,11 @@ class Settings(BaseSettings):
     watermark_text: str = "RaatVerse"
     watermark_position: str = "top-right"
     subtitle_style: str = "shorts_high_contrast"
+    cta_min_duration_seconds: float = Field(default=7.0, ge=1.0)
+    cta_end_padding_seconds: float = Field(default=1.5, ge=0.0)
+    cta_visual_hold_seconds: float = Field(default=2.0, ge=0.0)
+    min_scene_beat_duration_seconds: float = Field(default=2.5, ge=0.5)
+    min_subtitle_duration_seconds: float = Field(default=1.2, ge=0.5)
 
     youtube_client_id: str = ""
     youtube_client_secret: str = ""

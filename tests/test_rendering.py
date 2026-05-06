@@ -8,6 +8,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from raatverse_agent.assets.models import AssetPreparationRequest
 from raatverse_agent.assets.service import create_asset_preparation_service
+from raatverse_agent.assets.timing import align_asset_plan_timing_to_audio
 from raatverse_agent.config import Settings
 from raatverse_agent.db.models import AssetPlanRecord, AudioAssetRecord
 from raatverse_agent.db.repositories import RaatVerseRepository
@@ -107,6 +108,52 @@ def test_render_workflow_accepts_approved_asset_plan(tmp_path):
     assert validation.is_valid is True
 
 
+def test_cta_duration_reservation_and_audio_timing_scaling(tmp_path):
+    settings = _settings(tmp_path, cta_min_duration_seconds=7, min_scene_beat_duration_seconds=2.5)
+    _, asset_plan_id = _create_asset_plan(settings, approved=True)
+
+    with session_scope(settings.database_url) as session:
+        repository = RaatVerseRepository(session)
+        plan = repository.get_asset_plan(asset_plan_id)
+        draft = repository.get_script_draft(plan.script_draft_id)
+        audio = repository.get_audio_asset(plan.audio_asset_id)
+        source_duration = max(item.end_second for item in plan.scene_timings)
+        audio = audio.model_copy(update={"duration_seconds": source_duration + 20})
+        aligned, report = align_asset_plan_timing_to_audio(
+            draft=draft,
+            asset_plan=plan,
+            audio_asset=audio,
+            settings=settings,
+        )
+
+    assert report["timing_scaled_to_audio"] is True
+    assert report["cta_duration_seconds"] >= settings.cta_min_duration_seconds
+    assert aligned.scene_timings[-1].end_second >= audio.duration_seconds
+    assert aligned.scene_timings[-1].end_second - aligned.scene_timings[-1].start_second >= settings.cta_min_duration_seconds
+    assert min(item.end_second - item.start_second for item in aligned.scene_timings) >= settings.min_scene_beat_duration_seconds
+
+
+def test_subtitle_duration_enforcement_and_outro_visibility(tmp_path):
+    settings = _settings(tmp_path, min_subtitle_duration_seconds=1.2, cta_min_duration_seconds=7)
+    _, asset_plan_id = _create_asset_plan(settings, approved=True)
+
+    with session_scope(settings.database_url) as session:
+        repository = RaatVerseRepository(session)
+        plan = repository.get_asset_plan(asset_plan_id)
+        draft = repository.get_script_draft(plan.script_draft_id)
+        audio = repository.get_audio_asset(plan.audio_asset_id)
+        aligned, report = align_asset_plan_timing_to_audio(
+            draft=draft,
+            asset_plan=plan,
+            audio_asset=audio,
+            settings=settings,
+        )
+
+    assert report["subtitle_count"] == len(aligned.subtitle_timings)
+    assert min(item.end_second - item.start_second for item in aligned.subtitle_timings) >= settings.min_subtitle_duration_seconds
+    assert "Kal raat ek aur nayi kahani milegi." in aligned.subtitle_timings[-1].text
+
+
 def test_render_preflight_quality_warnings_and_strict_block(tmp_path):
     settings = _settings(tmp_path)
     _, asset_plan_id = _create_asset_plan(settings, approved=True)
@@ -138,6 +185,21 @@ def test_render_preflight_quality_warnings_and_strict_block(tmp_path):
     assert any("Audio duration exceeds" in warning for warning in validation.warnings)
     assert strict_validation.is_valid is False
     assert any("Strict quality check failed" in issue for issue in strict_validation.issues)
+
+
+def test_render_timing_report_is_persisted(tmp_path):
+    settings = _settings(tmp_path)
+    _, asset_plan_id = _create_asset_plan(settings, approved=True)
+
+    with session_scope(settings.database_url) as session:
+        repository = RaatVerseRepository(session)
+        service = create_render_workflow_service(settings=settings, repository=repository, mock=True)
+        render = service.create_render(asset_plan_id, RenderRequest(mock=True))
+        shown = repository.get_video_render(render.id)
+
+    assert shown.timing_report["cta_duration_seconds"] >= settings.cta_min_duration_seconds
+    assert shown.timing_report["final_video_duration_seconds"] == render.duration_seconds
+    assert shown.timing_report["subtitle_count"] > 0
 
 
 def test_ass_subtitle_file_generation(tmp_path):

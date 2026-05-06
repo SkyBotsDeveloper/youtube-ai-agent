@@ -23,6 +23,10 @@ STOCK_MEDIA_AVOID_DUPLICATES=true
 STOCK_MEDIA_MIN_UNIQUE_PER_PLAN=6
 STOCK_MEDIA_PREFER_VERTICAL=true
 STOCK_MEDIA_MAX_REUSE_PER_URL=1
+VISUAL_RELEVANCE_MIN_SCORE=0.55
+VISUAL_RELEVANCE_PREFER_LOCATION=true
+VISUAL_RELEVANCE_PREFER_ACTION=true
+VISUAL_RELEVANCE_PREFER_MOOD=true
 ```
 
 Use mock mode:
@@ -69,6 +73,14 @@ dark cinematic room heartbeat horror
 
 Pexels and Pixabay searches try alternate beat-specific queries when the first query is weak.
 
+The query builder also uses the beat narration segment so visuals align with the audio scene more reliably. For example, narration about wall heartbeat sounds can produce:
+
+```text
+old wall texture dark room horror vertical
+abandoned house wall close up dark
+creepy interior wall shadows night vertical
+```
+
 ## Diversity Filtering
 
 Asset preparation now selects a diverse candidate per scene beat:
@@ -86,6 +98,18 @@ python -m raatverse_agent assets quality <asset_plan_id>
 ```
 
 The report shows total beats, unique URLs, repeated URLs, vertical media count, missing local files, provider distribution, weak beats, and recommendations. `assets prepare` prints this report automatically.
+
+Each beat now includes alignment details:
+
+- narration excerpt
+- selected media URL
+- query used
+- visual relevance score
+- duration allocated
+- CTA/outro flag
+- warnings for weak alignment or short CTA timing
+
+Visual relevance considers vertical fit, query match, uniqueness, provider availability, resolution, and optional location/action/mood matches.
 
 ## Attribution Metadata
 

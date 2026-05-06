@@ -84,6 +84,17 @@ class AssetPreparationRequest(BaseModel):
     download_enabled: bool | None = None
 
 
+class AssetBeatAlignment(BaseModel):
+    beat_index: int = Field(ge=0)
+    narration_excerpt: str = ""
+    selected_media_url: str | None = None
+    query_used: str | None = None
+    visual_relevance_score: float = 0.0
+    duration_allocated: float = 0.0
+    is_cta_outro: bool = False
+    warnings: list[str] = Field(default_factory=list)
+
+
 class AssetQualityReport(BaseModel):
     asset_plan_id: int | None = None
     total_beats: int = 0
@@ -95,4 +106,5 @@ class AssetQualityReport(BaseModel):
     provider_distribution: dict[str, int] = Field(default_factory=dict)
     weak_beats: list[int] = Field(default_factory=list)
     unique_media_ratio: float = 0.0
+    beat_alignments: list[AssetBeatAlignment] = Field(default_factory=list)
     recommendations: list[str] = Field(default_factory=list)
