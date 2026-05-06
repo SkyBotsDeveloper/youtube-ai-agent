@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     tts_use_devanagari: bool = True
     tts_max_chars_per_chunk: int = Field(default=450, ge=80)
     tts_pause_style: Literal["punctuation", "plain"] = "punctuation"
+    cta_tts_override: str = ""
+    tts_cta_slower: bool = True
+    tts_cta_rate_reduction: int = Field(default=8, ge=0, le=50)
 
     stock_media_provider: str = "mock"
     pexels_api_key: str = ""
@@ -104,11 +107,16 @@ class Settings(BaseSettings):
     watermark_text: str = "RaatVerse"
     watermark_position: str = "top-right"
     subtitle_style: str = "shorts_high_contrast"
+    subtitle_global_offset_seconds: float = Field(default=0.35, ge=0.0)
+    subtitle_end_padding_seconds: float = Field(default=0.15, ge=0.0)
     cta_min_duration_seconds: float = Field(default=7.0, ge=1.0)
     cta_end_padding_seconds: float = Field(default=1.5, ge=0.0)
     cta_visual_hold_seconds: float = Field(default=2.0, ge=0.0)
     min_scene_beat_duration_seconds: float = Field(default=2.5, ge=0.5)
     min_subtitle_duration_seconds: float = Field(default=1.2, ge=0.5)
+    outro_subscribe_button_enabled: bool = True
+    outro_subscribe_button_text: str = "Subscribe"
+    outro_subscribe_button_style: str = "red"
 
     youtube_client_id: str = ""
     youtube_client_secret: str = ""

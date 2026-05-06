@@ -292,24 +292,49 @@ def watermark_drawtext(settings: Settings) -> str:
 def outro_screen_drawtext(settings: Settings) -> str:
     brand_size = max(56, round(settings.render_width * 0.07))
     cta_size = max(42, round(settings.render_width * 0.046))
+    button_w = max(360, round(settings.render_width * 0.42))
+    button_h = max(82, round(settings.render_height * 0.054))
+    button_size = max(42, round(settings.render_width * 0.05))
     line1 = _escape_drawtext("Agar kahani pasand aayi ho, to RaatVerse ko subscribe karo.")
     line2 = _escape_drawtext("Kal raat ek aur nayi kahani milegi.")
     brand = _escape_drawtext(settings.watermark_text or "RaatVerse")
-    return ",".join(
-        [
+    filters = [
             "drawtext="
             f"text='{brand}':fontcolor=white:fontsize={brand_size}:"
-            "x=(w-tw)/2:y=h*0.34:shadowcolor=black@0.75:shadowx=3:shadowy=3",
+            "x=(w-tw)/2:y=h*0.28:shadowcolor=black@0.75:shadowx=3:shadowy=3",
             "drawtext="
             f"text='{line1}':fontcolor=white:fontsize={cta_size}:"
             "box=1:boxcolor=black@0.38:boxborderw=18:"
-            "x=(w-tw)/2:y=h*0.49:shadowcolor=black@0.85:shadowx=2:shadowy=2",
+            "x=(w-tw)/2:y=h*0.44:shadowcolor=black@0.85:shadowx=2:shadowy=2",
             "drawtext="
             f"text='{line2}':fontcolor=white:fontsize={cta_size}:"
             "box=1:boxcolor=black@0.38:boxborderw=18:"
-            "x=(w-tw)/2:y=h*0.57:shadowcolor=black@0.85:shadowx=2:shadowy=2",
-        ]
-    )
+            "x=(w-tw)/2:y=h*0.52:shadowcolor=black@0.85:shadowx=2:shadowy=2",
+    ]
+    if settings.outro_subscribe_button_enabled:
+        button_text = _escape_drawtext(settings.outro_subscribe_button_text or "Subscribe")
+        button_color = _outro_button_color(settings.outro_subscribe_button_style)
+        filters.extend(
+            [
+                "drawbox="
+                f"x=(w-{button_w})/2:y=h*0.66:w={button_w}:h={button_h}:"
+                f"color={button_color}:t=fill",
+                "drawtext="
+                f"text='{button_text}':fontcolor=white:fontsize={button_size}:"
+                f"x=(w-tw)/2:y=h*0.66+({button_h}-th)/2:"
+                "shadowcolor=black@0.55:shadowx=2:shadowy=2",
+            ]
+        )
+    return ",".join(filters)
+
+
+def _outro_button_color(style: str) -> str:
+    normalized = style.strip().lower()
+    if normalized in {"dark", "black"}:
+        return "black@0.88"
+    if normalized in {"white", "light"}:
+        return "white@0.92"
+    return "0xE62117@0.96"
 
 
 def _escape_drawtext(value: str) -> str:

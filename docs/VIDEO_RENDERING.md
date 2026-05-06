@@ -69,6 +69,15 @@ The renderer generates `.ass` subtitle files with:
 - line wrapping for Shorts-style readability
 - Unicode-safe UTF-8 output for Hindi/Hinglish text
 
+If captions appear slightly early in a real render, tune:
+
+```env
+SUBTITLE_GLOBAL_OFFSET_SECONDS=0.35
+SUBTITLE_END_PADDING_SECONDS=0.15
+```
+
+The render timing alignment applies this offset after scaling subtitles to the actual TTS audio duration when available. The goal is for captions to appear with or just after speech, not before it.
+
 ## CTA and Audio-Based Timing
 
 The render workflow now treats the generated audio duration as the timing source when available. Before rendering it:
@@ -88,9 +97,19 @@ CTA_END_PADDING_SECONDS=1.5
 CTA_VISUAL_HOLD_SECONDS=2
 MIN_SCENE_BEAT_DURATION_SECONDS=2.5
 MIN_SUBTITLE_DURATION_SECONDS=1.2
+SUBTITLE_GLOBAL_OFFSET_SECONDS=0.35
+SUBTITLE_END_PADDING_SECONDS=0.15
 ```
 
-The FFmpeg renderer creates a dedicated final outro screen with a dark cinematic background, RaatVerse text, and the two-line subscribe CTA. This is local FFmpeg composition only; it does not change YouTube upload behavior.
+The FFmpeg renderer creates a dedicated final outro screen with a dark cinematic background, RaatVerse text, the two-line subscribe CTA, and an optional generic red subscribe button. This is local FFmpeg composition only; it does not change YouTube upload behavior.
+
+Outro button config:
+
+```env
+OUTRO_SUBSCRIBE_BUTTON_ENABLED=true
+OUTRO_SUBSCRIBE_BUTTON_TEXT=Subscribe
+OUTRO_SUBSCRIBE_BUTTON_STYLE=red
+```
 
 ## Watermark
 
@@ -137,7 +156,7 @@ python -m raatverse_agent render validate 1 --strict-quality
 python -m raatverse_agent render create 1 --strict-quality
 ```
 
-After `render create`, the CLI prints a timing report with audio duration, final video duration, CTA duration, shortest beat duration, subtitle count, whether timing was scaled to audio, and warnings.
+After `render create`, the CLI prints a timing report with audio duration, final video duration, CTA duration, shortest beat duration, subtitle count, subtitle offset, subtitle timing source, CTA TTS mode, outro screen/button flags, whether timing was scaled to audio, and warnings.
 
 Use the asset quality report before rendering:
 

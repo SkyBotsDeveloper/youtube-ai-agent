@@ -14,7 +14,13 @@ from raatverse_agent.assets.service import (
 )
 from raatverse_agent.assets.timing import build_subtitle_timings
 from raatverse_agent.assets.tts import EdgeFreeTTSProvider
-from raatverse_agent.assets.tts_text import chunk_tts_text, normalize_tts_text, prepare_tts_text
+from raatverse_agent.assets.tts_text import (
+    build_cta_tts_text,
+    chunk_tts_text,
+    is_cta_tts_chunk,
+    normalize_tts_text,
+    prepare_tts_text,
+)
 from raatverse_agent.config import Settings
 from raatverse_agent.db.repositories import RaatVerseRepository
 from raatverse_agent.db.session import initialize_database, session_scope
@@ -96,6 +102,35 @@ def test_devanagari_tts_text_selection_for_hindi_voice(tmp_path):
     assert "रात" in prepared.tts_text
     assert "दरवाजा" in prepared.tts_text or "दरवाज़ा" in prepared.tts_text
     assert prepared.input_characters > 0
+
+
+def test_cta_tts_normalization_uses_clear_subscribe_phrase(tmp_path):
+    settings = _settings(tmp_path, tts_voice="hi-IN-SwaraNeural", tts_use_devanagari=True)
+    draft_id = _create_draft(settings, approved=True)
+
+    with session_scope(settings.database_url) as session:
+        draft = RaatVerseRepository(session).get_script_draft(draft_id)
+
+    prepared = prepare_tts_text(draft, settings)
+
+    assert "\u0938\u092c\u094d\u0938\u0915\u094d\u0930\u093e\u0907\u092c \u0915\u0930\u0947\u0902" in prepared.tts_text
+    assert prepared.cta_tts_mode == "auto"
+    assert is_cta_tts_chunk(prepared.chunks[-1], build_cta_tts_text(settings))
+
+
+def test_cta_tts_override_is_used_only_for_tts_text(tmp_path):
+    override = "\u0930\u093e\u0924\u0935\u0930\u094d\u0938 \u0915\u094b \u0938\u092c\u094d\u0938\u0915\u094d\u0930\u093e\u0907\u092c \u0915\u0930\u0947\u0902\u0964"
+    settings = _settings(tmp_path, cta_tts_override=override)
+    draft_id = _create_draft(settings, approved=True)
+
+    with session_scope(settings.database_url) as session:
+        draft = RaatVerseRepository(session).get_script_draft(draft_id)
+
+    prepared = prepare_tts_text(draft, settings)
+
+    assert override in prepared.tts_text
+    assert settings.outro_cta in draft.narration_script
+    assert prepared.cta_tts_mode == "override"
 
 
 def test_free_tts_provider_returns_failed_metadata_when_network_fails(monkeypatch, tmp_path):

@@ -14,7 +14,11 @@ from raatverse_agent.assets.timing import (
     build_subtitle_timings,
     estimate_audio_duration_seconds,
 )
-from raatverse_agent.assets.tts_text import build_tts_quality_metadata, prepare_tts_text
+from raatverse_agent.assets.tts_text import (
+    build_tts_quality_metadata,
+    is_cta_tts_chunk,
+    prepare_tts_text,
+)
 from raatverse_agent.config import Settings
 from raatverse_agent.script_generation.models import ScriptDraft
 from raatverse_agent.services.interfaces import TTSProvider
@@ -42,6 +46,15 @@ def resolve_edge_rate(rate: str) -> str:
     if normalized.startswith(("+", "-")) and normalized.endswith("%"):
         return normalized
     return "+0%"
+
+
+def resolve_cta_edge_rate(settings: Settings) -> str:
+    base_rate = resolve_edge_rate(settings.tts_speaking_rate)
+    if not settings.tts_cta_slower:
+        return base_rate
+    base_value = int(base_rate.rstrip("%"))
+    reduced = max(-50, min(50, base_value - settings.tts_cta_rate_reduction))
+    return f"{reduced:+d}%"
 
 
 class MockTTSProvider(TTSProvider):
@@ -106,7 +119,7 @@ class EdgeFreeTTSProvider(TTSProvider):
         last_error: Exception | None = None
         for attempt in range(self.settings.tts_max_retries + 1):
             try:
-                asyncio.run(self._save_with_edge_tts(prepared.chunks, file_path))
+                boundary_events = asyncio.run(self._save_with_edge_tts(prepared.chunks, file_path))
                 actual_duration = probe_audio_duration_seconds(file_path, self.settings)
                 final_duration = actual_duration or duration
                 quality = build_tts_quality_metadata(
@@ -114,6 +127,8 @@ class EdgeFreeTTSProvider(TTSProvider):
                     audio_duration_seconds=final_duration,
                     estimated_script_duration_seconds=draft.estimated_duration_seconds,
                 )
+                quality["edge_boundary_event_count"] = len(boundary_events)
+                quality["edge_boundary_events_sample"] = boundary_events[:12]
                 subtitle_timings = build_subtitle_timings(draft, final_duration, self.settings)
                 scene_timings = build_scene_timing_suggestions(draft, final_duration, self.settings)
                 return AudioAsset(
@@ -137,7 +152,7 @@ class EdgeFreeTTSProvider(TTSProvider):
 
         raise TTSProviderError(f"Free TTS generation failed: {last_error}")
 
-    async def _save_with_edge_tts(self, chunks: list[str], file_path: Path) -> None:
+    async def _save_with_edge_tts(self, chunks: list[str], file_path: Path) -> list[dict]:
         try:
             import edge_tts
         except ImportError as exc:
@@ -150,24 +165,71 @@ class EdgeFreeTTSProvider(TTSProvider):
 
         voice = resolve_tts_voice(self.settings)
         rate = resolve_edge_rate(self.settings.tts_speaking_rate)
+        cta_rate = resolve_cta_edge_rate(self.settings)
         if len(chunks) == 1:
-            communicate = edge_tts.Communicate(chunks[0], voice, rate=rate)
-            await communicate.save(str(file_path))
-            return
+            return await self._write_edge_tts_part(
+                edge_tts=edge_tts,
+                text=chunks[0],
+                file_path=file_path,
+                voice=voice,
+                rate=cta_rate if is_cta_tts_chunk(chunks[0], self.settings) else rate,
+                chunk_index=0,
+            )
 
         temp_dir = Path(tempfile.mkdtemp(prefix="raatverse-tts-"))
         try:
             part_paths: list[Path] = []
+            boundary_events: list[dict] = []
             for index, chunk in enumerate(chunks):
                 part_path = temp_dir / f"part-{index:03d}.{self.settings.tts_output_format}"
-                communicate = edge_tts.Communicate(chunk, voice, rate=rate)
-                await communicate.save(str(part_path))
+                chunk_events = await self._write_edge_tts_part(
+                    edge_tts=edge_tts,
+                    text=chunk,
+                    file_path=part_path,
+                    voice=voice,
+                    rate=cta_rate if is_cta_tts_chunk(chunk, self.settings) else rate,
+                    chunk_index=index,
+                )
+                boundary_events.extend(chunk_events)
                 part_paths.append(part_path)
             with file_path.open("wb") as output:
                 for part_path in part_paths:
                     output.write(part_path.read_bytes())
+            return boundary_events
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+    async def _write_edge_tts_part(
+        self,
+        *,
+        edge_tts,
+        text: str,
+        file_path: Path,
+        voice: str,
+        rate: str,
+        chunk_index: int,
+    ) -> list[dict]:
+        communicate = edge_tts.Communicate(text, voice, rate=rate)
+        boundary_events: list[dict] = []
+        with file_path.open("wb") as audio_file:
+            async for event in communicate.stream():
+                event_type = str(event.get("type") or event.get("Type") or "").lower()
+                if event_type == "audio":
+                    data = event.get("data") or event.get("Data")
+                    if data:
+                        audio_file.write(data)
+                elif "boundary" in event_type:
+                    boundary_events.append(
+                        {
+                            "chunk_index": chunk_index,
+                            "type": event.get("type") or event.get("Type"),
+                            "offset": event.get("offset") or event.get("Offset"),
+                            "duration": event.get("duration") or event.get("Duration"),
+                            "text": event.get("text") or event.get("Text"),
+                            "rate": rate,
+                        }
+                    )
+        return boundary_events
 
 
 class LocalPlaceholderTTSProvider(TTSProvider):

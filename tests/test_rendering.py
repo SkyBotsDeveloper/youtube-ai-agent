@@ -14,8 +14,9 @@ from raatverse_agent.db.models import AssetPlanRecord, AudioAssetRecord
 from raatverse_agent.db.repositories import RaatVerseRepository
 from raatverse_agent.db.session import initialize_database, session_scope
 from raatverse_agent.rendering.errors import RenderWorkflowError
+from raatverse_agent.rendering.formatting import format_video_render
 from raatverse_agent.rendering.models import RenderRequest
-from raatverse_agent.rendering.renderers import watermark_drawtext
+from raatverse_agent.rendering.renderers import outro_screen_drawtext, watermark_drawtext
 from raatverse_agent.rendering.service import create_render_workflow_service
 from raatverse_agent.rendering.subtitles import build_ass_subtitles
 from raatverse_agent.script_generation.models import ScriptGenerationRequest
@@ -154,6 +155,36 @@ def test_subtitle_duration_enforcement_and_outro_visibility(tmp_path):
     assert "Kal raat ek aur nayi kahani milegi." in aligned.subtitle_timings[-1].text
 
 
+def test_subtitle_offset_application_uses_config(tmp_path):
+    settings = _settings(
+        tmp_path,
+        subtitle_global_offset_seconds=0.35,
+        subtitle_end_padding_seconds=0.15,
+    )
+    _, asset_plan_id = _create_asset_plan(settings, approved=True)
+
+    with session_scope(settings.database_url) as session:
+        repository = RaatVerseRepository(session)
+        plan = repository.get_asset_plan(asset_plan_id)
+        draft = repository.get_script_draft(plan.script_draft_id)
+        audio = repository.get_audio_asset(plan.audio_asset_id)
+        aligned, report = align_asset_plan_timing_to_audio(
+            draft=draft,
+            asset_plan=plan,
+            audio_asset=audio,
+            settings=settings,
+        )
+
+    assert aligned.subtitle_timings[0].start_second >= settings.subtitle_global_offset_seconds
+    assert report["subtitle_global_offset_seconds"] == settings.subtitle_global_offset_seconds
+    assert report["subtitle_end_padding_seconds"] == settings.subtitle_end_padding_seconds
+    assert report["subtitle_timing_source"] in {
+        "actual_audio_duration_with_offset",
+        "estimated_duration_with_offset",
+        "edge_boundary_events_with_offset",
+    }
+
+
 def test_render_preflight_quality_warnings_and_strict_block(tmp_path):
     settings = _settings(tmp_path)
     _, asset_plan_id = _create_asset_plan(settings, approved=True)
@@ -200,6 +231,25 @@ def test_render_timing_report_is_persisted(tmp_path):
     assert shown.timing_report["cta_duration_seconds"] >= settings.cta_min_duration_seconds
     assert shown.timing_report["final_video_duration_seconds"] == render.duration_seconds
     assert shown.timing_report["subtitle_count"] > 0
+    assert shown.timing_report["subtitle_global_offset_seconds"] == settings.subtitle_global_offset_seconds
+    assert shown.timing_report["cta_outro_screen_enabled"] is True
+    assert shown.timing_report["cta_subscribe_button_enabled"] is True
+
+
+def test_render_timing_report_format_includes_new_cta_fields(tmp_path):
+    settings = _settings(tmp_path)
+    _, asset_plan_id = _create_asset_plan(settings, approved=True)
+
+    with session_scope(settings.database_url) as session:
+        repository = RaatVerseRepository(session)
+        service = create_render_workflow_service(settings=settings, repository=repository, mock=True)
+        render = service.create_render(asset_plan_id, RenderRequest(mock=True))
+
+    formatted = format_video_render(render)
+
+    assert "Subtitle offset used:" in formatted
+    assert "CTA TTS mode:" in formatted
+    assert "CTA subscribe button enabled: True" in formatted
 
 
 def test_ass_subtitle_file_generation(tmp_path):
@@ -228,6 +278,18 @@ def test_watermark_config_behavior(tmp_path):
     assert "text='RV'" in draw
     assert "x=w-tw-48" in draw
     assert "y=h-th-160" in draw
+
+
+def test_outro_subscribe_button_render_config(tmp_path):
+    settings = _settings(tmp_path, outro_subscribe_button_enabled=True)
+    draw = outro_screen_drawtext(settings)
+
+    assert "drawbox=" in draw
+    assert "text='Subscribe'" in draw
+    assert "0xE62117" in draw
+
+    disabled = outro_screen_drawtext(_settings(tmp_path, outro_subscribe_button_enabled=False))
+    assert "drawbox=" not in disabled
 
 
 def test_ffmpeg_missing_graceful_error(tmp_path):

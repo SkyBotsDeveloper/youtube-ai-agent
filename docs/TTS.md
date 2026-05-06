@@ -32,6 +32,9 @@ TTS_TEXT_MODE=auto
 TTS_USE_DEVANAGARI=true
 TTS_MAX_CHARS_PER_CHUNK=450
 TTS_PAUSE_STYLE=punctuation
+CTA_TTS_OVERRIDE=
+TTS_CTA_SLOWER=true
+TTS_CTA_RATE_REDUCTION=8
 ```
 
 Run:
@@ -50,6 +53,22 @@ Real Hinglish scripts are kept for display subtitles, but Hindi Edge voices pron
 - `narration_hindi_devanagari_for_tts`: narration sent to Hindi TTS voices
 
 When no explicit Devanagari field exists, `TTS_TEXT_MODE=auto` uses a local normalization pass to improve common Roman Hindi words before sending text to edge-tts. This is a best-effort helper, not a full translation system.
+
+## CTA Pronunciation
+
+Hindi neural voices can pronounce the Roman word `subscribe` inconsistently. The TTS pipeline keeps the visible Hinglish CTA for subtitles, but replaces the spoken CTA with a clearer Hindi/Devanagari variant for TTS:
+
+```text
+अगर कहानी पसंद आई हो, तो रातवर्स चैनल को सब्सक्राइब करें। कल रात एक और नई कहानी मिलेगी।
+```
+
+To override only the spoken CTA text:
+
+```env
+CTA_TTS_OVERRIDE=अगर कहानी पसंद आई हो, तो रातवर्स चैनल को सब्सक्राइब करें। कल रात एक और नई कहानी मिलेगी।
+```
+
+If `TTS_CTA_SLOWER=true`, the edge-tts adapter speaks CTA chunks with a slightly slower rate using `TTS_CTA_RATE_REDUCTION`. Story narration keeps the normal `TTS_SPEAKING_RATE`.
 
 Before edge-tts receives text, the app:
 

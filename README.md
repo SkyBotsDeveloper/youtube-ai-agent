@@ -366,6 +366,9 @@ TTS_TEXT_MODE=auto
 TTS_USE_DEVANAGARI=true
 TTS_MAX_CHARS_PER_CHUNK=450
 TTS_PAUSE_STYLE=punctuation
+CTA_TTS_OVERRIDE=
+TTS_CTA_SLOWER=true
+TTS_CTA_RATE_REDUCTION=8
 ```
 
 Pexels/Pixabay:
@@ -429,6 +432,17 @@ CTA_END_PADDING_SECONDS=1.5
 CTA_VISUAL_HOLD_SECONDS=2
 MIN_SCENE_BEAT_DURATION_SECONDS=2.5
 MIN_SUBTITLE_DURATION_SECONDS=1.2
+SUBTITLE_GLOBAL_OFFSET_SECONDS=0.35
+SUBTITLE_END_PADDING_SECONDS=0.15
+OUTRO_SUBSCRIBE_BUTTON_ENABLED=true
+OUTRO_SUBSCRIBE_BUTTON_TEXT=Subscribe
+OUTRO_SUBSCRIBE_BUTTON_STYLE=red
 ```
 
-The render workflow reserves the final CTA/outro duration, scales scene/subtitle timings to actual TTS audio duration when available, and prints a timing report after render creation.
+The render workflow reserves the final CTA/outro duration, scales scene/subtitle timings to actual TTS audio duration when available, applies a small subtitle delay so captions do not appear before speech, and prints a timing report after render creation. The final FFmpeg outro screen includes RaatVerse text, the CTA, and a generic red subscribe button when enabled.
+
+If the CTA pronunciation needs manual tuning, set `CTA_TTS_OVERRIDE` to a TTS-only Hindi/Devanagari line such as:
+
+```env
+CTA_TTS_OVERRIDE=अगर कहानी पसंद आई हो, तो रातवर्स चैनल को सब्सक्राइब करें। कल रात एक और नई कहानी मिलेगी।
+```

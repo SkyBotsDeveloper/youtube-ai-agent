@@ -44,6 +44,12 @@ def build_subtitle_timings(
             )
         )
         cursor = end
+    if settings is not None:
+        return apply_subtitle_timing_offsets(
+            timings,
+            total_duration=total_duration,
+            settings=settings,
+        )
     return timings
 
 
@@ -218,6 +224,13 @@ def align_asset_plan_timing_to_audio(
         "shortest_scene_beat_duration_seconds": round(shortest_scene, 2),
         "shortest_subtitle_duration_seconds": round(shortest_subtitle, 2),
         "subtitle_count": len(aligned_subtitles),
+        "subtitle_global_offset_seconds": round(settings.subtitle_global_offset_seconds, 2),
+        "subtitle_end_padding_seconds": round(settings.subtitle_end_padding_seconds, 2),
+        "subtitle_timing_source": _subtitle_timing_source(audio_asset),
+        "cta_tts_mode": _audio_quality_value(audio_asset, "cta_tts_mode", "unknown"),
+        "cta_tts_override_used": bool(_audio_quality_value(audio_asset, "cta_tts_override_used", False)),
+        "cta_outro_screen_enabled": True,
+        "cta_subscribe_button_enabled": settings.outro_subscribe_button_enabled,
         "timing_scaled_to_audio": abs(target_duration - source_duration) > 0.25,
         "warnings": warnings,
     }
@@ -311,7 +324,53 @@ def _build_aligned_subtitle_timings(
     if timings:
         final = timings[-1]
         timings[-1] = final.model_copy(update={"end_second": round(max(final.end_second, total_duration), 2)})
-    return timings
+    return apply_subtitle_timing_offsets(
+        timings,
+        total_duration=total_duration,
+        settings=settings,
+    )
+
+
+def apply_subtitle_timing_offsets(
+    timings: list[SubtitleTiming],
+    *,
+    total_duration: float,
+    settings: Settings,
+) -> list[SubtitleTiming]:
+    if not timings:
+        return []
+
+    offset = settings.subtitle_global_offset_seconds
+    end_padding = settings.subtitle_end_padding_seconds
+    min_duration = settings.min_subtitle_duration_seconds
+    max_start = max(0.0, total_duration - min_duration)
+    starts = [
+        round(min(max_start, max(0.0, item.start_second + offset)), 2)
+        for item in timings
+    ]
+
+    shifted: list[SubtitleTiming] = []
+    for index, timing in enumerate(timings):
+        start = starts[index]
+        natural_end = timing.end_second + offset + end_padding
+        next_start = starts[index + 1] if index + 1 < len(starts) else total_duration
+        end = min(total_duration, max(natural_end, start + min_duration))
+        if index + 1 < len(starts) and end > next_start:
+            end = max(start + min_duration, next_start - 0.01)
+        shifted.append(
+            timing.model_copy(
+                update={
+                    "start_second": round(start, 2),
+                    "end_second": round(max(end, start + min_duration), 2),
+                }
+            )
+        )
+    if shifted:
+        final = shifted[-1]
+        shifted[-1] = final.model_copy(
+            update={"end_second": round(max(final.end_second, total_duration), 2)}
+        )
+    return shifted
 
 
 def _allocate_subtitle_lines(
@@ -396,6 +455,23 @@ def _timing_warnings(
     if audio_duration > final_duration:
         warnings.append("Audio duration is longer than final video duration.")
     return warnings
+
+
+def _subtitle_timing_source(audio_asset: AudioAsset | None) -> str:
+    if not audio_asset:
+        return "estimated_duration_with_offset"
+    metadata = audio_asset.tts_quality_metadata or {}
+    if int(metadata.get("edge_boundary_event_count") or 0) > 0:
+        return "edge_boundary_events_with_offset"
+    if audio_asset.duration_seconds:
+        return "actual_audio_duration_with_offset"
+    return "estimated_duration_with_offset"
+
+
+def _audio_quality_value(audio_asset: AudioAsset | None, key: str, default):
+    if not audio_asset:
+        return default
+    return (audio_asset.tts_quality_metadata or {}).get(key, default)
 
 
 def _normalize_for_match(value: str) -> str:
